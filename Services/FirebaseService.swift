@@ -361,7 +361,263 @@ final class FirebaseService: ObservableObject {
         #endif
     }
 
-    // MARK: - Attendance
+    // MARK: - Manual Attendance Storage
+
+    /// Saves or updates a tutor's attendance record for a verified student and class.
+    /// The document ID comes from AttendanceRecord.id, so changing a status updates
+    /// the same daily record instead of creating duplicate documents.
+    func saveAttendanceRecord(
+        _ record: AttendanceRecord,
+        student: Student,
+        session: ClassSession
+    ) async throws {
+        #if canImport(FirebaseCore) && canImport(FirebaseAuth) && canImport(FirebaseFirestore)
+        try ensureConfigured()
+
+        guard let user = Auth.auth().currentUser else {
+            throw FirebaseSetupError.notSignedIn
+        }
+
+        let db = Firestore.firestore()
+        let tutorProfile = try await db.collection("users").document(user.uid).getDocument()
+        guard tutorProfile.data()?["role"] as? String == "tutor" else {
+            throw FirebaseSetupError.notTutor
+        }
+
+        // Confirm both referenced documents belong to this tutor before writing.
+        let studentSnapshot = try await db.collection("students")
+            .document(student.id.uuidString)
+            .getDocument()
+        guard studentSnapshot.data()?["tutorId"] as? String == user.uid else {
+            throw FirebaseSetupError.studentNotOwned
+        }
+
+        let classSnapshot = try await db.collection("classes")
+            .document(session.id.uuidString)
+            .getDocument()
+        guard classSnapshot.data()?["tutorId"] as? String == user.uid else {
+            throw FirebaseSetupError.classNotOwned
+        }
+
+        let recordID = record.id.uuidString
+        let recordDate = Timestamp(date: record.date)
+        let data: [String: Any] = [
+            "id": recordID,
+            "studentId": student.id.uuidString,
+            "studentName": student.name,
+            "classId": session.id.uuidString,
+            "className": session.title,
+            "date": recordDate,
+            "status": record.status.rawValue,
+            "tutorId": user.uid,
+            "recordType": "manual",
+            // Keep createdAt stable when the status is updated.
+            "createdAt": recordDate,
+            "updatedAt": FieldValue.serverTimestamp()
+        ]
+
+        try await db.collection("attendance")
+            .document(recordID)
+            .setData(data, merge: true)
+        #else
+        throw FirebaseSetupError.sdkMissing
+        #endif
+    }
+
+    /// Loads manual attendance records owned by the signed-in tutor.
+    /// NFC scan events share the collection but are excluded from this model list.
+    func fetchAttendanceRecords() async throws -> [AttendanceRecord] {
+        #if canImport(FirebaseCore) && canImport(FirebaseAuth) && canImport(FirebaseFirestore)
+        try ensureConfigured()
+
+        guard let user = Auth.auth().currentUser else {
+            throw FirebaseSetupError.notSignedIn
+        }
+
+        let db = Firestore.firestore()
+        let tutorProfile = try await db.collection("users").document(user.uid).getDocument()
+        guard tutorProfile.data()?["role"] as? String == "tutor" else {
+            throw FirebaseSetupError.notTutor
+        }
+
+        let snapshot = try await db.collection("attendance")
+            .whereField("tutorId", isEqualTo: user.uid)
+            .getDocuments()
+
+        var records: [AttendanceRecord] = []
+        for document in snapshot.documents {
+            let data = document.data()
+            guard (data["recordType"] as? String) == "manual" else {
+                continue
+            }
+
+            guard
+                let idString = data["id"] as? String,
+                let id = UUID(uuidString: idString),
+                let studentName = data["studentName"] as? String,
+                let className = data["className"] as? String,
+                let timestamp = data["date"] as? Timestamp,
+                let statusString = data["status"] as? String,
+                let status = AttendanceStatus(rawValue: statusString)
+            else {
+                throw FirebaseSetupError.invalidAttendanceData
+            }
+
+            records.append(
+                AttendanceRecord(
+                    id: id,
+                    studentName: studentName,
+                    className: className,
+                    date: timestamp.dateValue(),
+                    status: status
+                )
+            )
+        }
+
+        return records.sorted { $0.date > $1.date }
+        #else
+        throw FirebaseSetupError.sdkMissing
+        #endif
+    }
+
+    // MARK: - Payment Storage
+
+    /// Creates a payment record owned by the signed-in tutor.
+    /// This does not read the target document first, because rules may deny
+    /// reads of a document that does not exist yet.
+    func savePayment(_ payment: Payment) async throws {
+        #if canImport(FirebaseCore) && canImport(FirebaseAuth) && canImport(FirebaseFirestore)
+        try ensureConfigured()
+
+        guard let user = Auth.auth().currentUser else {
+            throw FirebaseSetupError.notSignedIn
+        }
+
+        let db = Firestore.firestore()
+        let tutorProfile = try await db.collection("users").document(user.uid).getDocument()
+        guard tutorProfile.data()?["role"] as? String == "tutor" else {
+            throw FirebaseSetupError.notTutor
+        }
+
+        let documentID = payment.id.uuidString
+        let paymentData: [String: Any] = [
+            "id": documentID,
+            "studentName": payment.studentName,
+            "description": payment.description,
+            "amount": payment.amount,
+            "date": Timestamp(date: payment.date),
+            "isPaid": payment.isPaid,
+            "tutorId": user.uid,
+            "createdAt": FieldValue.serverTimestamp(),
+            "updatedAt": FieldValue.serverTimestamp()
+        ]
+
+        try await db.collection("payments").document(documentID).setData(paymentData)
+        #else
+        throw FirebaseSetupError.sdkMissing
+        #endif
+    }
+
+    /// Loads only the payment records belonging to the signed-in tutor.
+    func fetchPayments() async throws -> [Payment] {
+        #if canImport(FirebaseCore) && canImport(FirebaseAuth) && canImport(FirebaseFirestore)
+        try ensureConfigured()
+
+        guard let user = Auth.auth().currentUser else {
+            throw FirebaseSetupError.notSignedIn
+        }
+
+        let db = Firestore.firestore()
+        let tutorProfile = try await db.collection("users").document(user.uid).getDocument()
+        guard tutorProfile.data()?["role"] as? String == "tutor" else {
+            throw FirebaseSetupError.notTutor
+        }
+
+        let snapshot = try await db.collection("payments")
+            .whereField("tutorId", isEqualTo: user.uid)
+            .getDocuments()
+
+        let payments = try snapshot.documents.map { document in
+            let data = document.data()
+            guard
+                let idString = data["id"] as? String,
+                let id = UUID(uuidString: idString),
+                let studentName = data["studentName"] as? String,
+                let description = data["description"] as? String,
+                let amount = Self.paymentAmount(from: data["amount"]),
+                let timestamp = data["date"] as? Timestamp,
+                let isPaid = data["isPaid"] as? Bool
+            else {
+                throw FirebaseSetupError.invalidPaymentData
+            }
+
+            return Payment(
+                id: id,
+                studentName: studentName,
+                description: description,
+                amount: amount,
+                date: timestamp.dateValue(),
+                isPaid: isPaid
+            )
+        }
+
+        return payments.sorted { $0.date > $1.date }
+        #else
+        throw FirebaseSetupError.sdkMissing
+        #endif
+    }
+
+    /// Marks an existing payment as paid without creating a second document.
+    func updatePaymentPaidStatus(_ payment: Payment) async throws {
+        #if canImport(FirebaseCore) && canImport(FirebaseAuth) && canImport(FirebaseFirestore)
+        try ensureConfigured()
+
+        guard let user = Auth.auth().currentUser else {
+            throw FirebaseSetupError.notSignedIn
+        }
+
+        let db = Firestore.firestore()
+        let tutorProfile = try await db.collection("users").document(user.uid).getDocument()
+        guard tutorProfile.data()?["role"] as? String == "tutor" else {
+            throw FirebaseSetupError.notTutor
+        }
+
+        let documentRef = db.collection("payments").document(payment.id.uuidString)
+        let snapshot = try await documentRef.getDocument()
+
+        guard snapshot.exists else {
+            throw FirebaseSetupError.paymentNotFound
+        }
+        guard snapshot.data()?["tutorId"] as? String == user.uid else {
+            throw FirebaseSetupError.paymentNotOwned
+        }
+
+        try await documentRef.updateData([
+            "isPaid": true,
+            "updatedAt": FieldValue.serverTimestamp()
+        ])
+        #else
+        throw FirebaseSetupError.sdkMissing
+        #endif
+    }
+
+    private static func paymentAmount(from value: Any?) -> Double? {
+        if let amount = value as? Double {
+            return amount
+        }
+        if let amount = value as? Int {
+            return Double(amount)
+        }
+        if let amount = value as? Int64 {
+            return Double(amount)
+        }
+        if let amount = value as? NSNumber {
+            return amount.doubleValue
+        }
+        return nil
+    }
+
+    // MARK: - NFC Scan Event Logging
 
     func recordAttendance(tagPayload: String, studentEmail: String, role: String) async throws {
         #if canImport(FirebaseCore) && canImport(FirebaseAuth) && canImport(FirebaseFirestore)
@@ -371,13 +627,21 @@ final class FirebaseService: ObservableObject {
             throw FirebaseSetupError.notSignedIn
         }
 
-        try await Firestore.firestore().collection("attendance").addDocument(data: [
+        let db = Firestore.firestore()
+        let tutorProfile = try await db.collection("users").document(user.uid).getDocument()
+        guard tutorProfile.data()?["role"] as? String == "tutor" else {
+            throw FirebaseSetupError.notTutor
+        }
+
+        try await db.collection("attendance").addDocument(data: [
             "tagPayload": tagPayload,
             "studentEmail": studentEmail,
             "role": role.lowercased(),
             "createdAt": FieldValue.serverTimestamp(),
             "source": "NFC",
-            "createdBy": user.uid
+            "createdBy": user.uid,
+            "tutorId": user.uid,
+            "recordType": "nfc_scan"
         ])
         #else
         throw FirebaseSetupError.sdkMissing
@@ -398,6 +662,12 @@ enum FirebaseSetupError: LocalizedError {
     case notTutor
     case invalidStudentData
     case invalidClassData
+    case invalidAttendanceData
+    case studentNotOwned
+    case classNotOwned
+    case invalidPaymentData
+    case paymentNotFound
+    case paymentNotOwned
 
     var errorDescription: String? {
         switch self {
@@ -421,6 +691,18 @@ enum FirebaseSetupError: LocalizedError {
             return "A student record in Firestore is missing required fields."
         case .invalidClassData:
             return "A class record in Firestore is missing required fields or has an invalid date."
+        case .invalidAttendanceData:
+            return "An attendance record in Firestore is missing required fields or has an invalid status."
+        case .studentNotOwned:
+            return "The selected student does not belong to the signed-in tutor. Save or reload the student first."
+        case .classNotOwned:
+            return "The selected class does not belong to the signed-in tutor. Save or reload the class first."
+        case .invalidPaymentData:
+            return "A payment record in Firestore is missing required fields or has an invalid amount."
+        case .paymentNotFound:
+            return "That payment was not found in Firestore. Reload payments and try again."
+        case .paymentNotOwned:
+            return "That payment does not belong to the signed-in tutor."
         }
     }
 }

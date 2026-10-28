@@ -20,6 +20,9 @@ struct TutorFinanceView: View {
                         BarMark(x: .value("Month", item.0), y: .value("Income", item.1))
                             .foregroundStyle(TMStyle.blue.gradient).cornerRadius(5)
                     }.frame(height: 210)
+                    Text("Monthly bars are a sample illustration. Totals above use saved payments.")
+                        .font(.caption2)
+                        .foregroundStyle(TMStyle.muted)
                 }
                 LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 12) {
                     MetricTile(title: "Outstanding", value: "$\(Int(app.outstandingIncome))", detail: "Unpaid fees", icon: "clock.fill", tint: TMStyle.orange)
@@ -27,6 +30,9 @@ struct TutorFinanceView: View {
                 }
                 TMCard {
                     Text("Income by class").font(.headline)
+                    Text("Sample breakdown for layout. Not loaded from Firestore.")
+                        .font(.caption2)
+                        .foregroundStyle(TMStyle.muted)
                     incomeRow("Grade 11 Mathematics", value: "$240", percent: 0.8)
                     incomeRow("ICT Group B", value: "$180", percent: 0.6)
                     incomeRow("Physics Revision", value: "$120", percent: 0.4)

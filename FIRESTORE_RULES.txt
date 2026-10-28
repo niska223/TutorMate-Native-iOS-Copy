@@ -1,0 +1,217 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return signedIn() && request.auth.uid == userId;
+    }
+
+    function isTutor() {
+      return signedIn()
+        && exists(/databases/$(database)/documents/users/$(request.auth.uid))
+        && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'tutor';
+    }
+
+    function validProfile(userId) {
+      return request.resource.data.keys().hasAll([
+          'uid', 'displayName', 'email', 'role', 'createdAt'
+        ])
+        && request.resource.data.keys().hasOnly([
+          'uid', 'displayName', 'email', 'role', 'createdAt', 'updatedAt'
+        ])
+        && request.resource.data.uid == userId
+        && request.resource.data.email == request.auth.token.email
+        && request.resource.data.displayName is string
+        && request.resource.data.role in ['tutor', 'student']
+        && request.resource.data.createdAt is timestamp;
+    }
+
+    function ownsStudent(studentId) {
+      return exists(/databases/$(database)/documents/students/$(studentId))
+        && get(/databases/$(database)/documents/students/$(studentId)).data.tutorId == request.auth.uid;
+    }
+
+    function ownsClass(classId) {
+      return exists(/databases/$(database)/documents/classes/$(classId))
+        && get(/databases/$(database)/documents/classes/$(classId)).data.tutorId == request.auth.uid;
+    }
+
+    match /users/{userId} {
+      allow read: if isOwner(userId);
+      allow create: if isOwner(userId) && validProfile(userId);
+      allow update: if isOwner(userId)
+        && validProfile(userId)
+        && request.resource.data.uid == resource.data.uid
+        && request.resource.data.email == resource.data.email
+        && request.resource.data.role == resource.data.role
+        && request.resource.data.createdAt == resource.data.createdAt;
+      allow delete: if false;
+    }
+
+    match /students/{studentId} {
+      function validStudentData() {
+        return request.resource.data.keys().hasAll([
+          'id', 'name', 'email', 'grade', 'phone',
+          'attendanceRate', 'score', 'paid', 'tutorId', 'createdAt'
+        ])
+        && request.resource.data.keys().hasOnly([
+          'id', 'name', 'email', 'grade', 'phone',
+          'attendanceRate', 'score', 'paid', 'tutorId', 'createdAt'
+        ])
+        && request.resource.data.id == studentId
+        && request.resource.data.name is string
+        && request.resource.data.email is string
+        && request.resource.data.grade is string
+        && request.resource.data.phone is string
+        && request.resource.data.attendanceRate is int
+        && request.resource.data.score is int
+        && request.resource.data.paid is bool
+        && request.resource.data.tutorId is string
+        && request.resource.data.createdAt is timestamp;
+      }
+
+      allow create: if isTutor()
+        && validStudentData()
+        && request.resource.data.tutorId == request.auth.uid;
+      allow read: if isTutor() && resource.data.tutorId == request.auth.uid;
+      allow update: if isTutor()
+        && resource.data.tutorId == request.auth.uid
+        && request.resource.data.tutorId == resource.data.tutorId
+        && request.resource.data.id == resource.data.id
+        && validStudentData();
+      allow delete: if isTutor() && resource.data.tutorId == request.auth.uid;
+    }
+
+    match /classes/{classId} {
+      function validClassData() {
+        return request.resource.data.keys().hasAll([
+          'id', 'title', 'subject', 'date', 'time',
+          'duration', 'location', 'students', 'tutorId', 'createdAt'
+        ])
+        && request.resource.data.keys().hasOnly([
+          'id', 'title', 'subject', 'date', 'time',
+          'duration', 'location', 'students', 'tutorId', 'createdAt'
+        ])
+        && request.resource.data.id == classId
+        && request.resource.data.title is string
+        && request.resource.data.subject is string
+        && request.resource.data.date is timestamp
+        && request.resource.data.time is string
+        && request.resource.data.duration is string
+        && request.resource.data.location is string
+        && request.resource.data.students is int
+        && request.resource.data.tutorId is string
+        && request.resource.data.createdAt is timestamp;
+      }
+
+      allow create: if isTutor()
+        && validClassData()
+        && request.resource.data.tutorId == request.auth.uid;
+      allow read: if isTutor() && resource.data.tutorId == request.auth.uid;
+      allow update: if isTutor()
+        && resource.data.tutorId == request.auth.uid
+        && request.resource.data.tutorId == resource.data.tutorId
+        && request.resource.data.id == resource.data.id
+        && request.resource.data.createdAt == resource.data.createdAt
+        && validClassData();
+      allow delete: if isTutor() && resource.data.tutorId == request.auth.uid;
+    }
+
+    match /attendance/{attendanceId} {
+      function validManualAttendance() {
+        return request.resource.data.keys().hasAll([
+          'id', 'studentId', 'studentName', 'classId', 'className',
+          'date', 'status', 'tutorId', 'recordType', 'createdAt', 'updatedAt'
+        ])
+        && request.resource.data.keys().hasOnly([
+          'id', 'studentId', 'studentName', 'classId', 'className',
+          'date', 'status', 'tutorId', 'recordType', 'createdAt', 'updatedAt'
+        ])
+        && request.resource.data.id == attendanceId
+        && request.resource.data.studentId is string
+        && request.resource.data.studentName is string
+        && request.resource.data.classId is string
+        && request.resource.data.className is string
+        && request.resource.data.date is timestamp
+        && request.resource.data.status in ['Present', 'Absent', 'Late']
+        && request.resource.data.tutorId == request.auth.uid
+        && request.resource.data.recordType == 'manual'
+        && request.resource.data.createdAt is timestamp
+        && request.resource.data.updatedAt is timestamp
+        && ownsStudent(request.resource.data.studentId)
+        && ownsClass(request.resource.data.classId);
+      }
+
+      function validNFCScan() {
+        return request.resource.data.keys().hasAll([
+          'tagPayload', 'studentEmail', 'role', 'createdAt',
+          'source', 'createdBy', 'tutorId', 'recordType'
+        ])
+        && request.resource.data.keys().hasOnly([
+          'tagPayload', 'studentEmail', 'role', 'createdAt',
+          'source', 'createdBy', 'tutorId', 'recordType'
+        ])
+        && request.resource.data.tagPayload is string
+        && request.resource.data.studentEmail is string
+        && request.resource.data.role is string
+        && request.resource.data.createdAt is timestamp
+        && request.resource.data.source == 'NFC'
+        && request.resource.data.createdBy == request.auth.uid
+        && request.resource.data.tutorId == request.auth.uid
+        && request.resource.data.recordType == 'nfc_scan';
+      }
+
+      allow create: if isTutor()
+        && ((validManualAttendance()) || (validNFCScan()));
+
+      allow read: if isTutor() && resource.data.tutorId == request.auth.uid;
+
+      allow update: if isTutor()
+        && resource.data.recordType == 'manual'
+        && resource.data.tutorId == request.auth.uid
+        && validManualAttendance()
+        && request.resource.data.id == resource.data.id
+        && request.resource.data.studentId == resource.data.studentId
+        && request.resource.data.classId == resource.data.classId
+        && request.resource.data.createdAt == resource.data.createdAt;
+
+      allow delete: if false;
+    }
+
+    match /payments/{paymentId} {
+      function validPaymentData() {
+        return request.resource.data.keys().hasAll([
+          'id', 'studentName', 'description', 'amount', 'date',
+          'isPaid', 'tutorId', 'createdAt', 'updatedAt'
+        ])
+        && request.resource.data.keys().hasOnly([
+          'id', 'studentName', 'description', 'amount', 'date',
+          'isPaid', 'tutorId', 'createdAt', 'updatedAt'
+        ])
+        && request.resource.data.id == paymentId
+        && request.resource.data.studentName is string
+        && request.resource.data.description is string
+        && (request.resource.data.amount is int || request.resource.data.amount is float)
+        && request.resource.data.date is timestamp
+        && request.resource.data.isPaid is bool
+        && request.resource.data.tutorId == request.auth.uid
+        && request.resource.data.createdAt is timestamp
+        && request.resource.data.updatedAt is timestamp;
+      }
+
+      allow create: if isTutor() && validPaymentData();
+      allow read: if isTutor() && resource.data.tutorId == request.auth.uid;
+      allow update: if isTutor()
+        && resource.data.tutorId == request.auth.uid
+        && request.resource.data.tutorId == resource.data.tutorId
+        && request.resource.data.id == resource.data.id
+        && request.resource.data.createdAt == resource.data.createdAt
+        && validPaymentData();
+      allow delete: if false;
+    }
+  }
+}

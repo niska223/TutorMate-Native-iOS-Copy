@@ -17,20 +17,43 @@ struct TutorPaymentsView: View {
                     Spacer()
                     Button { showAdd = true } label: { Label("Add payment", systemImage: "plus") }.buttonStyle(.borderedProminent)
                 }
-                ForEach(app.payments) { payment in
-                    TMCard {
-                        HStack(spacing: 12) {
-                            Image(systemName: "creditcard.fill").foregroundStyle(TMStyle.blue).frame(width: 42, height: 42).background(TMStyle.blueSoft, in: RoundedRectangle(cornerRadius: 12))
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text(payment.studentName).font(.headline).foregroundStyle(TMStyle.ink)
-                                Text(payment.description).font(.caption).foregroundStyle(TMStyle.muted)
-                                Text(payment.date.formatted(date: .abbreviated, time: .omitted)).font(.caption2).foregroundStyle(TMStyle.muted)
-                            }
-                            Spacer()
-                            VStack(alignment: .trailing, spacing: 7) {
-                                Text("$\(Int(payment.amount))").font(.headline).foregroundStyle(TMStyle.ink)
-                                if payment.isPaid { StatusPill(text: "Paid") }
-                                else { Button("Mark paid") { app.markPaid(payment) }.font(.caption.weight(.semibold)).buttonStyle(.bordered) }
+
+                if app.isLoadingPayments {
+                    ProgressView("Loading saved payments…")
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 36)
+                } else if app.payments.isEmpty {
+                    ContentUnavailableView(
+                        "No saved payments yet",
+                        systemImage: "creditcard",
+                        description: Text("Add a payment to save it to your TutorMate account.")
+                    )
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 24)
+                } else {
+                    ForEach(app.payments) { payment in
+                        TMCard {
+                            HStack(spacing: 12) {
+                                Image(systemName: "creditcard.fill").foregroundStyle(TMStyle.blue).frame(width: 42, height: 42).background(TMStyle.blueSoft, in: RoundedRectangle(cornerRadius: 12))
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text(payment.studentName).font(.headline).foregroundStyle(TMStyle.ink)
+                                    Text(payment.description).font(.caption).foregroundStyle(TMStyle.muted)
+                                    Text(payment.date.formatted(date: .abbreviated, time: .omitted)).font(.caption2).foregroundStyle(TMStyle.muted)
+                                }
+                                Spacer()
+                                VStack(alignment: .trailing, spacing: 7) {
+                                    Text("$\(Int(payment.amount))").font(.headline).foregroundStyle(TMStyle.ink)
+                                    if payment.isPaid {
+                                        StatusPill(text: "Paid")
+                                    } else {
+                                        Button("Mark paid") {
+                                            app.markPaid(payment)
+                                        }
+                                        .font(.caption.weight(.semibold))
+                                        .buttonStyle(.bordered)
+                                        .disabled(app.updatingPaymentIDs.contains(payment.id))
+                                    }
+                                }
                             }
                         }
                     }
@@ -46,21 +69,74 @@ private struct AddPaymentSheet: View {
     @State private var name = ""
     @State private var amount = "120"
     @State private var description = "Monthly tuition"
+    @State private var isSaving = false
+    @State private var errorMessage = ""
+
     var body: some View {
         NavigationStack {
             Form {
                 TextField("Student name", text: $name)
                 TextField("Amount", text: $amount).keyboardType(.decimalPad)
                 TextField("Description", text: $description)
+
+                if !errorMessage.isEmpty {
+                    Text(errorMessage)
+                        .font(.footnote)
+                        .foregroundStyle(.red)
+                }
             }.navigationTitle("Add payment")
                 .toolbar {
-                    ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
-                    ToolbarItem(placement: .confirmationAction) { Button("Save") {
-                        guard let value = Double(amount), value > 0 else { return }
-                        app.addPayment(name: name.isEmpty ? "Demo Student" : name, amount: value, description: description)
-                        dismiss()
-                    } }
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button("Cancel") { dismiss() }
+                            .disabled(isSaving)
+                    }
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button(isSaving ? "Saving..." : "Save") {
+                            savePayment()
+                        }
+                        .disabled(isSaving)
+                    }
                 }
+        }
+    }
+
+    private func savePayment() {
+        errorMessage = ""
+
+        let cleanName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        let cleanDescription = description.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        guard !cleanName.isEmpty else {
+            errorMessage = "Please enter the student's name."
+            return
+        }
+
+        guard let value = Double(amount), value > 0 else {
+            errorMessage = "Please enter a valid amount."
+            return
+        }
+
+        guard !cleanDescription.isEmpty else {
+            errorMessage = "Please enter a payment description."
+            return
+        }
+
+        isSaving = true
+
+        Task { @MainActor in
+            let saved = await app.addPayment(
+                name: cleanName,
+                amount: value,
+                description: cleanDescription
+            )
+
+            isSaving = false
+
+            if saved {
+                dismiss()
+            } else {
+                errorMessage = app.toastMessage ?? "Could not save payment. Your details are still here."
+            }
         }
     }
 }

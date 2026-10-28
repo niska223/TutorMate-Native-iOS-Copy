@@ -1,9 +1,13 @@
 import Foundation
 
 enum AttendanceStatus: String, CaseIterable, Codable, Identifiable {
-    case present = "Present", absent = "Absent", late = "Late"
+    case present = "Present"
+    case absent = "Absent"
+    case late = "Late"
+
     var id: String { rawValue }
 }
+
 struct AttendanceRecord: Identifiable, Codable {
     var id = UUID()
     var studentName: String
@@ -11,3 +15,4 @@ struct AttendanceRecord: Identifiable, Codable {
     var date: Date
     var status: AttendanceStatus
 }
+
