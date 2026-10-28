@@ -10,3 +10,4 @@ struct ClassSession: Identifiable, Codable, Hashable {
     var location: String
     var students: Int
 }
+

@@ -263,6 +263,104 @@ final class FirebaseService: ObservableObject {
         #endif
     }
 
+    // MARK: - Class Storage
+
+    /// Saves a new class belonging to the signed-in tutor.
+    func saveClass(_ session: ClassSession) async throws {
+        #if canImport(FirebaseCore) && canImport(FirebaseAuth) && canImport(FirebaseFirestore)
+        try ensureConfigured()
+
+        guard let user = Auth.auth().currentUser else {
+            throw FirebaseSetupError.notSignedIn
+        }
+
+        let db = Firestore.firestore()
+        let tutorProfile = try await db.collection("users")
+            .document(user.uid)
+            .getDocument()
+
+        guard tutorProfile.data()?["role"] as? String == "tutor" else {
+            throw FirebaseSetupError.notTutor
+        }
+
+        let documentID = session.id.uuidString
+        let classData: [String: Any] = [
+            "id": documentID,
+            "title": session.title,
+            "subject": session.subject,
+            "date": Timestamp(date: session.date),
+            "time": session.time,
+            "duration": session.duration,
+            "location": session.location,
+            "students": session.students,
+            "tutorId": user.uid,
+            "createdAt": FieldValue.serverTimestamp()
+        ]
+
+        // New classes have new UUIDs, so this creates their first document.
+        try await db.collection("classes")
+            .document(documentID)
+            .setData(classData)
+        #else
+        throw FirebaseSetupError.sdkMissing
+        #endif
+    }
+
+    /// Loads only the classes belonging to the signed-in tutor.
+    func fetchClasses() async throws -> [ClassSession] {
+        #if canImport(FirebaseCore) && canImport(FirebaseAuth) && canImport(FirebaseFirestore)
+        try ensureConfigured()
+
+        guard let user = Auth.auth().currentUser else {
+            throw FirebaseSetupError.notSignedIn
+        }
+
+        let db = Firestore.firestore()
+        let tutorProfile = try await db.collection("users")
+            .document(user.uid)
+            .getDocument()
+
+        guard tutorProfile.data()?["role"] as? String == "tutor" else {
+            throw FirebaseSetupError.notTutor
+        }
+
+        let snapshot = try await db.collection("classes")
+            .whereField("tutorId", isEqualTo: user.uid)
+            .getDocuments()
+
+        return try snapshot.documents.map { document in
+            let data = document.data()
+
+            guard
+                let idString = data["id"] as? String,
+                let id = UUID(uuidString: idString),
+                let title = data["title"] as? String,
+                let subject = data["subject"] as? String,
+                let timestamp = data["date"] as? Timestamp,
+                let time = data["time"] as? String,
+                let duration = data["duration"] as? String,
+                let location = data["location"] as? String,
+                let studentCount = data["students"] as? Int
+            else {
+                throw FirebaseSetupError.invalidClassData
+            }
+
+            return ClassSession(
+                id: id,
+                title: title,
+                subject: subject,
+                date: timestamp.dateValue(),
+                time: time,
+                duration: duration,
+                location: location,
+                students: studentCount
+            )
+        }
+        #else
+        throw FirebaseSetupError.sdkMissing
+        #endif
+    }
+
     // MARK: - Attendance
 
     func recordAttendance(tagPayload: String, studentEmail: String, role: String) async throws {
@@ -299,6 +397,7 @@ enum FirebaseSetupError: LocalizedError {
     case roleMismatch
     case notTutor
     case invalidStudentData
+    case invalidClassData
 
     var errorDescription: String? {
         switch self {
@@ -320,6 +419,8 @@ enum FirebaseSetupError: LocalizedError {
             return "Only an authenticated tutor can manage student records."
         case .invalidStudentData:
             return "A student record in Firestore is missing required fields."
+        case .invalidClassData:
+            return "A class record in Firestore is missing required fields or has an invalid date."
         }
     }
 }

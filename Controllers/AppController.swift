@@ -28,6 +28,9 @@ final class AppController: ObservableObject {
     private var persistedStudentIDs = Set<UUID>()
     private var studentLoadTask: Task<Void, Never>?
 
+    @Published private(set) var isLoadingClasses = false
+    private var classLoadTask: Task<Void, Never>?
+
     // MARK: - Classes (currently local)
 
     @Published var sessions: [ClassSession] = [
@@ -120,8 +123,14 @@ final class AppController: ObservableObject {
 
         if role == .tutor && FirebaseService.shared.isConfigured {
             studentLoadTask?.cancel()
+            classLoadTask?.cancel()
+
             studentLoadTask = Task { @MainActor in
                 await loadTutorStudents()
+            }
+
+            classLoadTask = Task { @MainActor in
+                await loadTutorClasses()
             }
         }
     }
@@ -133,6 +142,8 @@ final class AppController: ObservableObject {
     func signOut() {
         studentLoadTask?.cancel()
         studentLoadTask = nil
+        classLoadTask?.cancel()
+        classLoadTask = nil
 
         do {
             if FirebaseService.shared.isConfigured {
@@ -143,6 +154,7 @@ final class AppController: ObservableObject {
         }
 
         isLoadingStudents = false
+        isLoadingClasses = false
         persistedStudentIDs.removeAll()
         route = .welcome
     }
@@ -180,6 +192,39 @@ final class AppController: ObservableObject {
         }
     }
 
+    // MARK: - Load Classes from Firestore
+
+    func loadTutorClasses() async {
+        guard FirebaseService.shared.isConfigured else {
+            showToast("Firebase is not configured.")
+            return
+        }
+
+        isLoadingClasses = true
+        defer { isLoadingClasses = false }
+
+        do {
+            let savedClasses = try await FirebaseService.shared.fetchClasses()
+
+            // Do not update the tutor workspace if the user signed out meanwhile.
+            guard route == .tutor else { return }
+
+            sessions = savedClasses.sorted { $0.date < $1.date }
+
+            showToast(
+                savedClasses.isEmpty
+                    ? "No saved classes yet. Add your first class."
+                    : "Loaded \(savedClasses.count) saved class(es)."
+            )
+        } catch {
+            guard route == .tutor else { return }
+
+            // Do not show the sample schedule as if it came from the database.
+            sessions = []
+            showToast("Could not load classes: \(error.localizedDescription)")
+        }
+    }
+
     // MARK: - Toasts
 
     func showToast(_ message: String) {
@@ -211,21 +256,58 @@ final class AppController: ObservableObject {
         showToast("\(student.name): \(status.rawValue)")
     }
 
-    // MARK: - Add Class (currently local)
+    // MARK: - Add Class (Firestore)
 
-    func addClass(title: String, subject: String, date: Date, time: String, location: String) {
-        sessions.append(
-            ClassSession(
-                title: title,
-                subject: subject,
-                date: date,
-                time: time,
-                duration: "60 min",
-                location: location,
-                students: 0
-            )
+    @discardableResult
+    func addClass(
+        title: String,
+        subject: String,
+        date: Date,
+        time: String,
+        location: String
+    ) async -> Bool {
+        let cleanTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        let cleanSubject = subject.trimmingCharacters(in: .whitespacesAndNewlines)
+        let cleanTime = time.trimmingCharacters(in: .whitespacesAndNewlines)
+        let cleanLocation = location.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        guard !cleanTitle.isEmpty else {
+            showToast("Enter a class title.")
+            return false
+        }
+
+        guard !cleanSubject.isEmpty, !cleanTime.isEmpty, !cleanLocation.isEmpty else {
+            showToast("Complete the class details before saving.")
+            return false
+        }
+
+        guard FirebaseService.shared.isConfigured else {
+            showToast("Firebase is not configured. The class was not saved.")
+            return false
+        }
+
+        let newSession = ClassSession(
+            title: cleanTitle,
+            subject: cleanSubject,
+            date: date,
+            time: cleanTime,
+            duration: "60 min",
+            location: cleanLocation,
+            students: 0
         )
-        showToast("Class added locally. Cloud saving is not connected yet.")
+
+        do {
+            try await FirebaseService.shared.saveClass(newSession)
+
+            guard route == .tutor else { return false }
+
+            sessions.append(newSession)
+            showToast("Class saved successfully.")
+            return true
+        } catch {
+            showToast("Could not save class: \(error.localizedDescription)")
+            return false
+        }
     }
 
     // MARK: - Add Student (Firestore)
