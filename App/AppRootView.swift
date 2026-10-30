@@ -2,6 +2,7 @@ import SwiftUI
 
 struct AppRootView: View {
     @EnvironmentObject private var app: AppController
+    @Environment(\.scenePhase) private var scenePhase
     var body: some View {
         Group {
             switch app.route {
@@ -15,5 +16,10 @@ struct AppRootView: View {
             }
         }
         .animation(.easeInOut(duration: 0.2), value: app.route)
+        .task { await app.restoreAuthentication() }
+        .onChange(of: scenePhase) { _, newPhase in
+            guard newPhase == .active, app.route == .tutor else { return }
+            Task { await app.loadTutorClasses() }
+        }
     }
 }

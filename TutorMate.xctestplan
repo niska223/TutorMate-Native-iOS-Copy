@@ -1,0 +1,30 @@
+{
+  "configurations" : [
+    {
+      "id" : "2FB9B52F-7D26-4017-8E8D-D7A94DBFF3DE",
+      "name" : "Test Scheme Action",
+      "options" : {
+
+      }
+    }
+  ],
+  "defaultOptions" : {
+    "codeCoverage" : false,
+    "performanceAntipatternCheckerEnabled" : true,
+    "targetForVariableExpansion" : {
+      "containerPath" : "container:TutorMate.xcodeproj",
+      "identifier" : "AB4E48A91BDD527C845F3D7C",
+      "name" : "TutorMate"
+    }
+  },
+  "testTargets" : [
+    {
+      "target" : {
+        "containerPath" : "container:TutorMate.xcodeproj",
+        "identifier" : "A17A84A806C35D988F448ECA",
+        "name" : "TutorMateTests"
+      }
+    }
+  ],
+  "version" : 1
+}

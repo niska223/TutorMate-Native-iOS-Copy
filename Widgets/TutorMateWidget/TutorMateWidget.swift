@@ -1,25 +1,26 @@
 import WidgetKit
 import SwiftUI
 
-private let tutorMateAppGroup = "group.com.example.tutormate"
-private let nextClassStorageKey = "tutormate.widget.nextClass"
-
 struct TutorMateWidgetEntry: TimelineEntry {
     let date: Date
     let classTitle: String
     let classTime: String
     let tutorName: String
     let attendanceStreak: String
+    let subject: String
+    let classDate: String
 }
 
 struct TutorMateWidgetProvider: TimelineProvider {
     func placeholder(in context: Context) -> TutorMateWidgetEntry {
         TutorMateWidgetEntry(
             date: .now,
-            classTitle: "Grade 11 Mathematics",
-            classTime: "10:30 AM · Room 02",
-            tutorName: "Niska Wijesinghe",
-            attendanceStreak: "5 classes"
+            classTitle: "Open TutorMate",
+            classTime: "Your schedule will appear here",
+            tutorName: "",
+            attendanceStreak: "Streak unavailable",
+            subject: "",
+            classDate: ""
         )
     }
 
@@ -29,28 +30,29 @@ struct TutorMateWidgetProvider: TimelineProvider {
 
     func getTimeline(in context: Context, completion: @escaping (Timeline<TutorMateWidgetEntry>) -> Void) {
         let entry = readSharedEntry()
-        completion(Timeline(entries: [entry], policy: .after(.now.addingTimeInterval(30 * 60))))
+        completion(Timeline(entries: [entry], policy: .after(.now.addingTimeInterval(60 * 60))))
     }
 
     private func readSharedEntry() -> TutorMateWidgetEntry {
-        guard let defaults = UserDefaults(suiteName: tutorMateAppGroup),
-              let data = defaults.data(forKey: nextClassStorageKey),
-              let payload = try? JSONSerialization.jsonObject(with: data) as? [String: String] else {
+        guard let payload = WidgetSharedStore.load(), payload.role == "tutor" else {
             return TutorMateWidgetEntry(
                 date: .now,
                 classTitle: "Open TutorMate",
-                classTime: "No shared class data yet",
-                tutorName: "Tutor not set",
-                attendanceStreak: "0 classes"
+                classTime: "Tutor schedule unavailable",
+                tutorName: "",
+                attendanceStreak: "Streak unavailable",
+                subject: "",
+                classDate: ""
             )
         }
-
+        let noClass = payload.classTitle == nil
         return TutorMateWidgetEntry(
-            date: .now,
-            classTitle: payload["classTitle"] ?? "No upcoming class",
-            classTime: payload["classTime"] ?? "Open TutorMate to see your schedule",
-            tutorName: payload["tutorName"] ?? "Tutor not set",
-            attendanceStreak: payload["attendanceStreak"] ?? "0 classes"
+            date: .now, classTitle: payload.classTitle ?? "No upcoming class",
+            classTime: noClass ? "No upcoming classes" : (payload.classTime ?? "Time unavailable"),
+            tutorName: payload.tutorName ?? "",
+            attendanceStreak: payload.attendanceStreak.map { "\($0) day streak" } ?? "Streak unavailable",
+            subject: payload.subject ?? "",
+            classDate: payload.classDate?.formatted(date: .abbreviated, time: .omitted) ?? ""
         )
     }
 }
@@ -72,6 +74,9 @@ struct TutorMateWidgetView: View {
             Text(entry.classTitle)
                 .font(.headline)
                 .lineLimit(2)
+
+            if !entry.subject.isEmpty { Text(entry.subject).font(.caption.weight(.semibold)).foregroundStyle(.blue) }
+            if !entry.classDate.isEmpty { Text(entry.classDate).font(.caption).foregroundStyle(.secondary) }
 
             Label(entry.classTime, systemImage: "clock")
                 .font(.caption)
@@ -99,7 +104,9 @@ struct TutorMateWidgetView: View {
             }
         }
         .padding()
-        .widgetURL(URL(string: "tutormate://student/home"))
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("TutorMate. Next class: \(entry.classTitle). \(entry.subject). \(entry.classDate), \(entry.classTime). \(entry.attendanceStreak).")
+        .widgetURL(URL(string: "tutormate://"))
     }
 }
 

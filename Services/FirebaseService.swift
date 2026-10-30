@@ -52,6 +52,48 @@ final class FirebaseService: ObservableObject {
         #endif
     }
 
+    func restoredProfile() async throws -> (name: String, email: String, role: UserRole)? {
+        #if canImport(FirebaseCore) && canImport(FirebaseAuth) && canImport(FirebaseFirestore)
+        try ensureConfigured()
+        guard let user = Auth.auth().currentUser else { return nil }
+        let snapshot = try await Firestore.firestore().collection("users").document(user.uid).getDocument()
+        guard snapshot.exists, let data = snapshot.data(),
+              data["uid"] as? String == user.uid,
+              let name = data["displayName"] as? String,
+              let rawRole = data["role"] as? String,
+              let role = UserRole.allCases.first(where: { $0.rawValue.lowercased() == rawRole.lowercased() }),
+              let email = user.email else { throw FirebaseSetupError.invalidRole }
+        return (name, email, role)
+        #else
+        throw FirebaseSetupError.sdkMissing
+        #endif
+    }
+
+    /// Updates only the signed-in student's own profile name. The active rules
+    /// allow self-profile updates while keeping UID, email, role, and link fields immutable.
+    func updateStudentProfileName(_ name: String) async throws {
+        #if canImport(FirebaseCore) && canImport(FirebaseAuth) && canImport(FirebaseFirestore)
+        try ensureConfigured()
+        guard let user = Auth.auth().currentUser else { throw FirebaseSetupError.notSignedIn }
+        let cleanName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !cleanName.isEmpty else { throw FirebaseSetupError.missingDisplayName }
+
+        let profileRef = Firestore.firestore().collection("users").document(user.uid)
+        let profile = try await profileRef.getDocument()
+        guard let data = profile.data(),
+              data["uid"] as? String == user.uid,
+              data["role"] as? String == "student" else {
+            throw FirebaseSetupError.roleMismatch
+        }
+        try await profileRef.updateData([
+            "displayName": cleanName,
+            "updatedAt": FieldValue.serverTimestamp()
+        ])
+        #else
+        throw FirebaseSetupError.sdkMissing
+        #endif
+    }
+
     // MARK: - Authentication
 
     func signIn(email: String, password: String) async throws {
@@ -82,6 +124,36 @@ final class FirebaseService: ObservableObject {
         #if canImport(FirebaseCore) && canImport(FirebaseAuth) && canImport(FirebaseFirestore)
         try ensureConfigured()
         try Auth.auth().signOut()
+        #else
+        throw FirebaseSetupError.sdkMissing
+        #endif
+    }
+
+    /// Starts Firebase's verified email-based password reset flow for the
+    /// currently authenticated account. The app never reads or stores passwords.
+    func sendPasswordResetEmail() async throws {
+        #if canImport(FirebaseCore) && canImport(FirebaseAuth) && canImport(FirebaseFirestore)
+        try ensureConfigured()
+        guard let email = Auth.auth().currentUser?.email,
+              !email.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            throw FirebaseSetupError.missingEmail
+        }
+        try await sendPasswordResetEmail(to: email)
+        #else
+        throw FirebaseSetupError.sdkMissing
+        #endif
+    }
+
+    /// Sends Firebase's password reset email without requiring an active session.
+    /// This is used from the sign-in screen when a user cannot remember their password.
+    func sendPasswordResetEmail(to email: String) async throws {
+        #if canImport(FirebaseCore) && canImport(FirebaseAuth) && canImport(FirebaseFirestore)
+        try ensureConfigured()
+        let cleanEmail = email.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard cleanEmail.contains("@"), cleanEmail.contains(".") else {
+            throw FirebaseSetupError.missingEmail
+        }
+        try await Auth.auth().sendPasswordReset(withEmail: cleanEmail)
         #else
         throw FirebaseSetupError.sdkMissing
         #endif
@@ -192,6 +264,13 @@ final class FirebaseService: ObservableObject {
             throw FirebaseSetupError.notTutor
         }
 
+        let studentRef = db.collection("students").document(student.id.uuidString)
+        let existing = try await studentRef.getDocument()
+        guard existing.data()?["tutorId"] as? String == user.uid,
+              let createdAt = existing.data()?["createdAt"] else {
+            throw FirebaseSetupError.studentNotOwned
+        }
+
         let studentData: [String: Any] = [
             "id": student.id.uuidString,
             "name": student.name,
@@ -201,12 +280,27 @@ final class FirebaseService: ObservableObject {
             "attendanceRate": student.attendanceRate,
             "score": student.score,
             "paid": student.paid,
-            "tutorId": user.uid
+            "tutorId": user.uid,
+            "createdAt": createdAt
         ]
 
-        try await db.collection("students")
-            .document(student.id.uuidString)
-            .updateData(studentData)
+        try await studentRef.updateData(studentData)
+        #else
+        throw FirebaseSetupError.sdkMissing
+        #endif
+    }
+
+    func deleteStudent(_ student: Student) async throws {
+        #if canImport(FirebaseCore) && canImport(FirebaseAuth) && canImport(FirebaseFirestore)
+        try ensureConfigured()
+        guard let user = Auth.auth().currentUser else { throw FirebaseSetupError.notSignedIn }
+        let db = Firestore.firestore()
+        let profile = try await db.collection("users").document(user.uid).getDocument()
+        guard profile.data()?["role"] as? String == "tutor" else { throw FirebaseSetupError.notTutor }
+        let ref = db.collection("students").document(student.id.uuidString)
+        let doc = try await ref.getDocument()
+        guard doc.data()?["tutorId"] as? String == user.uid else { throw FirebaseSetupError.studentNotOwned }
+        try await ref.delete()
         #else
         throw FirebaseSetupError.sdkMissing
         #endif
@@ -306,6 +400,41 @@ final class FirebaseService: ObservableObject {
         #endif
     }
 
+    func updateClass(_ session: ClassSession) async throws {
+        #if canImport(FirebaseCore) && canImport(FirebaseAuth) && canImport(FirebaseFirestore)
+        try ensureConfigured()
+        guard let user = Auth.auth().currentUser else { throw FirebaseSetupError.notSignedIn }
+        let db = Firestore.firestore()
+        let profile = try await db.collection("users").document(user.uid).getDocument()
+        guard profile.data()?["role"] as? String == "tutor" else { throw FirebaseSetupError.notTutor }
+        let ref = db.collection("classes").document(session.id.uuidString)
+        let existing = try await ref.getDocument()
+        guard existing.data()?["tutorId"] as? String == user.uid,
+              let createdAt = existing.data()?["createdAt"] else { throw FirebaseSetupError.classNotOwned }
+        try await ref.updateData(["id": session.id.uuidString, "title": session.title, "subject": session.subject,
+            "date": Timestamp(date: session.date), "time": session.time, "duration": session.duration,
+            "location": session.location, "students": session.students, "tutorId": user.uid, "createdAt": createdAt])
+        #else
+        throw FirebaseSetupError.sdkMissing
+        #endif
+    }
+
+    func deleteClass(_ session: ClassSession) async throws {
+        #if canImport(FirebaseCore) && canImport(FirebaseAuth) && canImport(FirebaseFirestore)
+        try ensureConfigured()
+        guard let user = Auth.auth().currentUser else { throw FirebaseSetupError.notSignedIn }
+        let db = Firestore.firestore()
+        let profile = try await db.collection("users").document(user.uid).getDocument()
+        guard profile.data()?["role"] as? String == "tutor" else { throw FirebaseSetupError.notTutor }
+        let ref = db.collection("classes").document(session.id.uuidString)
+        let existing = try await ref.getDocument()
+        guard existing.data()?["tutorId"] as? String == user.uid else { throw FirebaseSetupError.classNotOwned }
+        try await ref.delete()
+        #else
+        throw FirebaseSetupError.sdkMissing
+        #endif
+    }
+
     /// Loads only the classes belonging to the signed-in tutor.
     func fetchClasses() async throws -> [ClassSession] {
         #if canImport(FirebaseCore) && canImport(FirebaseAuth) && canImport(FirebaseFirestore)
@@ -342,7 +471,9 @@ final class FirebaseService: ObservableObject {
                 let location = data["location"] as? String,
                 let studentCount = data["students"] as? Int
             else {
-                throw FirebaseSetupError.invalidClassData
+                throw FirebaseSetupError.invalidClassData(
+                    "Class document \(document.documentID) is missing or has an invalid field. Expected a UUID id, title, subject, Firestore Timestamp date, time, duration, location, and integer students count."
+                )
             }
 
             return ClassSession(
@@ -399,7 +530,8 @@ final class FirebaseService: ObservableObject {
             throw FirebaseSetupError.classNotOwned
         }
 
-        let recordID = record.id.uuidString
+        let dayStart = Calendar.current.startOfDay(for: record.date)
+        let recordID = AttendanceRecord.stableDocumentID(studentID: student.id, classID: session.id, date: record.date)
         let recordDate = Timestamp(date: record.date)
         let data: [String: Any] = [
             "id": recordID,
@@ -412,13 +544,11 @@ final class FirebaseService: ObservableObject {
             "tutorId": user.uid,
             "recordType": "manual",
             // Keep createdAt stable when the status is updated.
-            "createdAt": recordDate,
+            "createdAt": Timestamp(date: dayStart),
             "updatedAt": FieldValue.serverTimestamp()
         ]
 
-        try await db.collection("attendance")
-            .document(recordID)
-            .setData(data, merge: true)
+        try await db.collection("attendance").document(recordID).setData(data, merge: true)
         #else
         throw FirebaseSetupError.sdkMissing
         #endif
@@ -452,8 +582,8 @@ final class FirebaseService: ObservableObject {
             }
 
             guard
-                let idString = data["id"] as? String,
-                let id = UUID(uuidString: idString),
+                let storedID = data["id"] as? String,
+                storedID == document.documentID,
                 let studentName = data["studentName"] as? String,
                 let className = data["className"] as? String,
                 let timestamp = data["date"] as? Timestamp,
@@ -465,7 +595,9 @@ final class FirebaseService: ObservableObject {
 
             records.append(
                 AttendanceRecord(
-                    id: id,
+                    id: UUID(),
+                    studentID: (data["studentId"] as? String).flatMap(UUID.init(uuidString:)),
+                    classID: (data["classId"] as? String).flatMap(UUID.init(uuidString:)),
                     studentName: studentName,
                     className: className,
                     date: timestamp.dateValue(),
@@ -601,6 +733,27 @@ final class FirebaseService: ObservableObject {
         #endif
     }
 
+    func updatePayment(_ payment: Payment) async throws {
+        #if canImport(FirebaseCore) && canImport(FirebaseAuth) && canImport(FirebaseFirestore)
+        try ensureConfigured()
+        guard let user = Auth.auth().currentUser else { throw FirebaseSetupError.notSignedIn }
+        let db = Firestore.firestore()
+        let profile = try await db.collection("users").document(user.uid).getDocument()
+        guard profile.data()?["role"] as? String == "tutor" else { throw FirebaseSetupError.notTutor }
+        let ref = db.collection("payments").document(payment.id.uuidString)
+        let current = try await ref.getDocument()
+        guard let data = current.data(), data["tutorId"] as? String == user.uid,
+              let createdAt = data["createdAt"] else { throw FirebaseSetupError.paymentNotOwned }
+        try await ref.updateData(["id": payment.id.uuidString, "studentName": payment.studentName,
+            "description": payment.description, "amount": payment.amount, "date": Timestamp(date: payment.date),
+            "isPaid": payment.isPaid, "tutorId": user.uid, "createdAt": createdAt,
+            "updatedAt": FieldValue.serverTimestamp()])
+        #else
+        throw FirebaseSetupError.sdkMissing
+        #endif
+    }
+
+
     private static func paymentAmount(from value: Any?) -> Double? {
         if let amount = value as? Double {
             return amount
@@ -661,7 +814,7 @@ enum FirebaseSetupError: LocalizedError {
     case roleMismatch
     case notTutor
     case invalidStudentData
-    case invalidClassData
+    case invalidClassData(String)
     case invalidAttendanceData
     case studentNotOwned
     case classNotOwned
@@ -689,8 +842,8 @@ enum FirebaseSetupError: LocalizedError {
             return "Only an authenticated tutor can manage student records."
         case .invalidStudentData:
             return "A student record in Firestore is missing required fields."
-        case .invalidClassData:
-            return "A class record in Firestore is missing required fields or has an invalid date."
+        case .invalidClassData(let message):
+            return message
         case .invalidAttendanceData:
             return "An attendance record in Firestore is missing required fields or has an invalid status."
         case .studentNotOwned:

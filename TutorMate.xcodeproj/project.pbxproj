@@ -39,6 +39,7 @@
 		B182A3902BFC5509926D4BA5 /* TutorRootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 29EB9391D1F15491B7090710 /* TutorRootView.swift */; };
 		BC6C3926DC92533EAC710EE7 /* AttendanceController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 36DAB66CA7285190AC6D8C64 /* AttendanceController.swift */; };
 		BD60DE7C44BA537AAF2F115C /* TutorMateWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9ADAB39EDF2F5B39BA8328E5 /* TutorMateWidget.swift */; };
+		BD60DE7C44BA537AAF2F115D /* WidgetSharedStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9ADAB39EDF2F5B39BA8328E6 /* WidgetSharedStore.swift */; };
 		BDCD4C534246546485A7C2DC /* TutorMateWidget.appex in Embed App Extensions */ = {isa = PBXBuildFile; fileRef = FDAEDDBE89DA57CFA0110ABC /* TutorMateWidget.appex */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		C9C54845A13659D1AFFDA7B0 /* TutorClassesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9C4F832DE2BE5FF7966B8BAE /* TutorClassesView.swift */; };
 		CF812597746052D79591C316 /* TutorStudentsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E2FC88B8201B5D108AE58D9E /* TutorStudentsView.swift */; };
@@ -49,6 +50,7 @@
 		D93FEC20871F500AB9E993C0 /* AppRoute.swift in Sources */ = {isa = PBXBuildFile; fileRef = DE8EF3EDE2B4560995B48AEF /* AppRoute.swift */; };
 		DB5C6EB2512F56C3AA293D68 /* ClassSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = E90377BB23CC5D9494AA802E /* ClassSession.swift */; };
 		DD53015DEFB3516A8198FD6F /* StudentRootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DCF1241775675A84AC8EA4CA /* StudentRootView.swift */; };
+		E722DDC83094BA970094E4D4 /* WidgetSharedStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9ADAB39EDF2F5B39BA8328E6 /* WidgetSharedStore.swift */; };
 		E73273CA308F56FA00BC0E08 /* GoogleService-Info.plist in Resources */ = {isa = PBXBuildFile; fileRef = E73273C9308F56FA00BC0E08 /* GoogleService-Info.plist */; };
 		E935412FB0CB5E88BA0C4361 /* Payment.swift in Sources */ = {isa = PBXBuildFile; fileRef = A981BB9D487D5AC0B7A48520 /* Payment.swift */; };
 		EAA61F964AF65153A4D34C8B /* FirebaseCore in Frameworks */ = {isa = PBXBuildFile; productRef = 394869DD384A5048BE6D1B58 /* FirebaseCore */; };
@@ -108,6 +110,7 @@
 		81B8ECC1709C5C73B206F3DD /* TutorPaymentsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TutorPaymentsView.swift; sourceTree = "<group>"; };
 		85DD083FDABF5EADB301C85F /* TutorMate.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = TutorMate.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		9ADAB39EDF2F5B39BA8328E5 /* TutorMateWidget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TutorMateWidget.swift; sourceTree = "<group>"; };
+		9ADAB39EDF2F5B39BA8328E6 /* WidgetSharedStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WidgetSharedStore.swift; sourceTree = "<group>"; };
 		9C4F832DE2BE5FF7966B8BAE /* TutorClassesView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TutorClassesView.swift; sourceTree = "<group>"; };
 		9CA205091EF05924BB1EB690 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		9FF05467AE0A581A9DE56F6D /* NFCService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NFCService.swift; sourceTree = "<group>"; };
@@ -123,6 +126,7 @@
 		E234F9928B75528CBB77C02C /* StudentHomeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StudentHomeView.swift; sourceTree = "<group>"; };
 		E2FC88B8201B5D108AE58D9E /* TutorStudentsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TutorStudentsView.swift; sourceTree = "<group>"; };
 		E6F3080DC1C45783BBC49DC2 /* FaceIDService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FaceIDService.swift; sourceTree = "<group>"; };
+		E722DDC93094CB080094E4D4 /* TutorMate.xctestplan */ = {isa = PBXFileReference; lastKnownFileType = text; path = TutorMate.xctestplan; sourceTree = "<group>"; };
 		E73273C9308F56FA00BC0E08 /* GoogleService-Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = "GoogleService-Info.plist"; sourceTree = "<group>"; };
 		E90377BB23CC5D9494AA802E /* ClassSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClassSession.swift; sourceTree = "<group>"; };
 		EB96294F0054586AAAE701D0 /* Attendance.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Attendance.swift; sourceTree = "<group>"; };
@@ -328,6 +332,7 @@
 			isa = PBXGroup;
 			children = (
 				9ADAB39EDF2F5B39BA8328E5 /* TutorMateWidget.swift */,
+				9ADAB39EDF2F5B39BA8328E6 /* WidgetSharedStore.swift */,
 			);
 			path = TutorMateWidget;
 			sourceTree = "<group>";
@@ -349,9 +354,10 @@
 			path = Payments;
 			sourceTree = "<group>";
 		};
-		D657BCD69A1F56B091C07585 /*  */ = {
+		D657BCD69A1F56B091C07585 = {
 			isa = PBXGroup;
 			children = (
+				E722DDC93094CB080094E4D4 /* TutorMate.xctestplan */,
 				9CA205091EF05924BB1EB690 /* Assets.xcassets */,
 				0D318BB295DB599E90EC4304 /* Controllers */,
 				1189B981756655929F738429 /* Models */,
@@ -363,7 +369,6 @@
 				E73273C8308F212400BC0E08 /* Recovered References */,
 				E73273C9308F56FA00BC0E08 /* GoogleService-Info.plist */,
 			);
-			name = "";
 			sourceTree = "<group>";
 		};
 		E60A45AA34125916A00A06F9 /* Progress */ = {
@@ -485,7 +490,7 @@
 				en,
 				Base,
 			);
-			mainGroup = D657BCD69A1F56B091C07585 /*  */;
+			mainGroup = D657BCD69A1F56B091C07585;
 			packageReferences = (
 				9A68BFA43E125E99B6B79C1E /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */,
 			);
@@ -532,6 +537,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				BD60DE7C44BA537AAF2F115C /* TutorMateWidget.swift in Sources */,
+				BD60DE7C44BA537AAF2F115D /* WidgetSharedStore.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -571,6 +577,7 @@
 				A28CC790D7585EB8B9AC1CFD /* StudentProfileView.swift in Sources */,
 				3B5A4558604F5E01BE16BF3E /* TutorSettingsView.swift in Sources */,
 				AFEE209064AF5BD481A7B7B7 /* StudentHomeView.swift in Sources */,
+				E722DDC83094BA970094E4D4 /* WidgetSharedStore.swift in Sources */,
 				DD53015DEFB3516A8198FD6F /* StudentRootView.swift in Sources */,
 				CF812597746052D79591C316 /* TutorStudentsView.swift in Sources */,
 				8DB64888F89350F09B3D1DF8 /* TutorDashboardView.swift in Sources */,
@@ -652,6 +659,7 @@
 				ALWAYS_SEARCH_USER_PATHS = NO;
 				CODE_SIGN_ENTITLEMENTS = TutorMate.entitlements;
 				CODE_SIGN_STYLE = Automatic;
+				ENABLE_TESTABILITY = YES;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = App/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;

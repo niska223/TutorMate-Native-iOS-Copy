@@ -8,10 +8,10 @@ struct TutorDashboardView: View {
             VStack(alignment: .leading, spacing: 20) {
                 PageTitle(title: "Good morning, \(firstName)", subtitle: "Here’s what’s happening with your classes today.")
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 145), spacing: 12)], spacing: 12) {
-                    MetricTile(title: "Total students", value: "\(app.students.count)", detail: "+2 this month", icon: "person.2.fill")
+                    MetricTile(title: "Total students", value: "\(app.students.count)", detail: "Saved student records", icon: "person.2.fill")
                     MetricTile(title: "Today's classes", value: "\(todayClasses.count)", detail: "Across your subjects", icon: "calendar", tint: TMStyle.violet)
                     MetricTile(title: "Attendance", value: "\(todayAttendance)%", detail: "Today's attendance", icon: "checkmark.circle.fill", tint: TMStyle.green)
-                    MetricTile(title: "Income collected", value: "$\(Int(app.collectedIncome))", detail: "This month", icon: "creditcard.fill", tint: TMStyle.orange)
+                    MetricTile(title: "Income collected", value: app.collectedIncome.formatted(.currency(code: Locale.current.currency?.identifier ?? "USD")), detail: "All paid records", icon: "creditcard.fill", tint: TMStyle.orange)
                 }
                 TMCard {
                     HStack {
@@ -41,7 +41,7 @@ struct TutorDashboardView: View {
                     HStack {
                         VStack(alignment: .leading, spacing: 5) {
                             Eyebrow(text: "INCOME OVERVIEW")
-                            Text("$\(Int(app.collectedIncome))").font(.system(size: 32, weight: .bold, design: .rounded)).foregroundStyle(TMStyle.ink)
+                            Text(app.collectedIncome, format: .currency(code: Locale.current.currency?.identifier ?? "USD")).font(.system(size: 32, weight: .bold, design: .rounded)).foregroundStyle(TMStyle.ink)
                             Text("Collected payments").font(.caption).foregroundStyle(TMStyle.muted)
                         }
                         Spacer()
@@ -51,18 +51,43 @@ struct TutorDashboardView: View {
                 }
                 TMCard {
                     Text("Recent activity").font(.headline).foregroundStyle(TMStyle.ink)
-                    activityRow("Maya checked in via NFC", detail: "Attendance · just now", icon: "wave.3.right", tint: TMStyle.green)
-                    activityRow("Payment received · $120", detail: "Maya Silva · today", icon: "creditcard", tint: TMStyle.blue)
-                    activityRow("Assessment marks published", detail: "Grade 11 Mathematics", icon: "doc.text", tint: TMStyle.violet)
+                    if recentActivity.isEmpty {
+                        Text("No saved attendance or payment activity yet.")
+                            .font(.body)
+                            .foregroundStyle(TMStyle.muted)
+                    } else {
+                        ForEach(recentActivity) { item in
+                            activityRow(item.title, detail: item.detail, icon: item.icon, tint: item.tint)
+                        }
+                    }
                 }
             }.padding(20).frame(maxWidth: 1100).frame(maxWidth: .infinity, alignment: .topLeading)
         }.background(TMStyle.canvas)
     }
     private var firstName: String { app.displayName.split(separator: " ").first.map(String.init) ?? "Tutor" }
     private var todayClasses: [ClassSession] { app.sessions.filter { Calendar.current.isDateInToday($0.date) } }
+    private var todayAttendanceRecords: [AttendanceRecord] {
+        app.attendance.filter { Calendar.current.isDateInToday($0.date) }
+    }
     private var todayAttendance: Int {
-        guard !app.attendance.isEmpty else { return 0 }
-        return Int(Double(app.attendance.filter { $0.status == .present }.count) / Double(app.attendance.count) * 100)
+        guard !todayAttendanceRecords.isEmpty else { return 0 }
+        let attendedCount = todayAttendanceRecords.filter { $0.status == .present || $0.status == .late }.count
+        return Int(Double(attendedCount) / Double(todayAttendanceRecords.count) * 100)
+    }
+    private var recentActivity: [DashboardActivity] {
+        let attendance = app.attendance.map { record in
+            DashboardActivity(id: "attendance-\(record.id.uuidString)",
+                title: "\(record.status.rawValue): \(record.studentName)",
+                detail: "\(record.className) · \(record.date.formatted(date: .abbreviated, time: .shortened))",
+                icon: "checkmark.circle", tint: TMStyle.green, date: record.date)
+        }
+        let payments = app.payments.map { payment in
+            DashboardActivity(id: "payment-\(payment.id.uuidString)",
+                title: "\(payment.isPaid ? "Payment received" : "Payment due") · \(payment.amount.formatted(.currency(code: Locale.current.currency?.identifier ?? "USD")))",
+                detail: "\(payment.studentName) · \(payment.date.formatted(date: .abbreviated, time: .omitted))",
+                icon: "creditcard", tint: payment.isPaid ? TMStyle.blue : TMStyle.orange, date: payment.date)
+        }
+        return (attendance + payments).sorted { $0.date > $1.date }.prefix(4).map { $0 }
     }
     private func quickAction(_ title: String, icon: String, tint: Color, action: @escaping () -> Void) -> some View {
         Button(action: action) {
@@ -84,6 +109,15 @@ struct TutorDashboardView: View {
             Spacer()
         }
     }
+}
+
+private struct DashboardActivity: Identifiable {
+    let id: String
+    let title: String
+    let detail: String
+    let icon: String
+    let tint: Color
+    let date: Date
 }
 struct ClassSummaryRow: View {
     let session: ClassSession

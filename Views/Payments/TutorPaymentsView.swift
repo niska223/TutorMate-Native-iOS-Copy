@@ -3,6 +3,7 @@ import SwiftUI
 struct TutorPaymentsView: View {
     @EnvironmentObject private var app: AppController
     @State private var showAdd = false
+    @State private var editingPayment: Payment?
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
@@ -44,7 +45,7 @@ struct TutorPaymentsView: View {
                                 VStack(alignment: .trailing, spacing: 7) {
                                     Text("$\(Int(payment.amount))").font(.headline).foregroundStyle(TMStyle.ink)
                                     if payment.isPaid {
-                                        StatusPill(text: "Paid")
+                                        Button { var changed = payment; changed.isPaid = false; Task { _ = await app.updatePayment(changed) } } label: { StatusPill(text: "Paid · mark unpaid", color: TMStyle.green) }
                                     } else {
                                         Button("Mark paid") {
                                             app.markPaid(payment)
@@ -53,6 +54,7 @@ struct TutorPaymentsView: View {
                                         .buttonStyle(.bordered)
                                         .disabled(app.updatingPaymentIDs.contains(payment.id))
                                     }
+                                    Button("Edit") { editingPayment = payment }.font(.caption)
                                 }
                             }
                         }
@@ -61,16 +63,25 @@ struct TutorPaymentsView: View {
             }.padding(20).frame(maxWidth: 950).frame(maxWidth: .infinity, alignment: .topLeading)
         }.background(TMStyle.canvas)
         .sheet(isPresented: $showAdd) { AddPaymentSheet() }
+        .sheet(item: $editingPayment) { AddPaymentSheet(existing: $0) }
     }
 }
 private struct AddPaymentSheet: View {
     @EnvironmentObject private var app: AppController
     @Environment(\.dismiss) private var dismiss
+    var existing: Payment? = nil
     @State private var name = ""
     @State private var amount = "120"
     @State private var description = "Monthly tuition"
     @State private var isSaving = false
     @State private var errorMessage = ""
+
+    init(existing: Payment? = nil) {
+        self.existing = existing
+        _name = State(initialValue: existing?.studentName ?? "")
+        _amount = State(initialValue: existing.map { String($0.amount) } ?? "120")
+        _description = State(initialValue: existing?.description ?? "Monthly tuition")
+    }
 
     var body: some View {
         NavigationStack {
@@ -84,7 +95,7 @@ private struct AddPaymentSheet: View {
                         .font(.footnote)
                         .foregroundStyle(.red)
                 }
-            }.navigationTitle("Add payment")
+            }.navigationTitle(existing == nil ? "Add payment" : "Edit payment")
                 .toolbar {
                     ToolbarItem(placement: .cancellationAction) {
                         Button("Cancel") { dismiss() }
@@ -124,11 +135,13 @@ private struct AddPaymentSheet: View {
         isSaving = true
 
         Task { @MainActor in
-            let saved = await app.addPayment(
-                name: cleanName,
-                amount: value,
-                description: cleanDescription
-            )
+            let saved: Bool
+            if var existing {
+                existing.studentName = cleanName; existing.amount = value; existing.description = cleanDescription
+                saved = await app.updatePayment(existing)
+            } else {
+                saved = await app.addPayment(name: cleanName, amount: value, description: cleanDescription)
+            }
 
             isSaving = false
 

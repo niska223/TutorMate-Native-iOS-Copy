@@ -11,8 +11,10 @@ struct AuthenticationView: View {
     @State private var password = ""
     @State private var showPassword = false
     @State private var error = ""
+    @State private var info = ""
     @State private var isSigningIn = false
     @State private var isAuthenticatingWithFaceID = false
+    @State private var isSendingPasswordReset = false
 
     private let faceIDService = FaceIDService()
 
@@ -100,6 +102,30 @@ struct AuthenticationView: View {
                                     .stroke(TMStyle.line)
                             )
 
+                            HStack {
+                                Spacer()
+                                Button {
+                                    Task { @MainActor in
+                                        await sendPasswordReset()
+                                    }
+                                } label: {
+                                    if isSendingPasswordReset {
+                                        ProgressView("Sending reset link…")
+                                    } else {
+                                        Text("Forgot password?")
+                                    }
+                                }
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(TMStyle.blue)
+                                .disabled(isSendingPasswordReset || isSigningIn || isAuthenticatingWithFaceID)
+                            }
+
+                            if !info.isEmpty {
+                                Text(info)
+                                    .font(.caption)
+                                    .foregroundStyle(TMStyle.blue)
+                            }
+
                             if !error.isEmpty {
                                 Text(error)
                                     .font(.caption)
@@ -116,26 +142,36 @@ struct AuthenticationView: View {
                             }
                             .disabled(isSigningIn || isAuthenticatingWithFaceID)
 
-                            Button {
-                                Task { @MainActor in
-                                    await signInWithFaceID()
-                                }
-                            } label: {
-                                HStack(spacing: 8) {
-                                    if isAuthenticatingWithFaceID {
-                                        ProgressView()
-                                            .tint(TMStyle.blue)
-                                    } else {
-                                        Image(systemName: "faceid")
+                            if app.faceIDEnabled {
+                                let hasSavedSession = FirebaseService.shared.currentUserEmail != nil
+                                Button {
+                                    Task { @MainActor in
+                                        await signInWithFaceID()
                                     }
+                                } label: {
+                                    HStack(spacing: 8) {
+                                        if isAuthenticatingWithFaceID {
+                                            ProgressView()
+                                                .tint(TMStyle.blue)
+                                        } else {
+                                            Image(systemName: "faceid")
+                                        }
 
-                                    Text("Sign in with Face ID")
+                                        Text(hasSavedSession ? "Unlock saved account with Face ID" : "Face ID requires a saved sign-in")
+                                    }
+                                    .font(.subheadline.weight(.semibold))
+                                    .foregroundStyle(TMStyle.blue)
+                                    .frame(maxWidth: .infinity)
                                 }
-                                .font(.subheadline.weight(.semibold))
-                                .foregroundStyle(TMStyle.blue)
-                                .frame(maxWidth: .infinity)
+                                .disabled(isSigningIn || isAuthenticatingWithFaceID || !hasSavedSession)
+                                if !hasSavedSession {
+                                    Text("Sign in successfully with your password, then use Lock with Face ID before returning here.")
+                                        .font(.caption2)
+                                        .foregroundStyle(TMStyle.muted)
+                                        .multilineTextAlignment(.center)
+                                        .frame(maxWidth: .infinity)
+                                }
                             }
-                            .disabled(isSigningIn || isAuthenticatingWithFaceID)
 
                             Button("Create an account") {
                                 error = ""
@@ -147,9 +183,7 @@ struct AuthenticationView: View {
                             .foregroundStyle(TMStyle.blue)
                             .frame(maxWidth: .infinity)
 
-                            Text(
-                                "Use your Firebase account to sign in. Face ID is available after you have signed in on this device."
-                            )
+                            Text("Sign in successfully once, enable Face ID in Settings, then choose Lock with Face ID instead of Sign out to use Face ID next time.")
                             .font(.caption2)
                             .foregroundStyle(TMStyle.muted)
                             .multilineTextAlignment(.center)
@@ -176,6 +210,7 @@ struct AuthenticationView: View {
     @MainActor
     private func signInWithFirebase() async {
         error = ""
+        info = ""
 
         let cleanEmail = email.trimmingCharacters(
             in: .whitespacesAndNewlines
@@ -215,11 +250,36 @@ struct AuthenticationView: View {
                 role: role.rawValue.lowercased()
             )
 
+            guard let profile = try await FirebaseService.shared.restoredProfile(),
+                  profile.role == role else {
+                throw FirebaseSetupError.roleMismatch
+            }
+
             app.signIn(
-                name: displayName,
-                email: cleanEmail,
-                role: role
+                name: profile.name,
+                email: profile.email,
+                role: profile.role
             )
+        } catch {
+            self.error = error.localizedDescription
+        }
+    }
+
+    @MainActor
+    private func sendPasswordReset() async {
+        error = ""
+        info = ""
+        let cleanEmail = email.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard cleanEmail.contains("@"), cleanEmail.contains(".") else {
+            error = "Enter the email address for your account, then select Forgot password."
+            return
+        }
+
+        isSendingPasswordReset = true
+        defer { isSendingPasswordReset = false }
+        do {
+            try await FirebaseService.shared.sendPasswordResetEmail(to: cleanEmail)
+            info = "If an account uses this email, Firebase will send a password reset link. Check your inbox and spam folder."
         } catch {
             self.error = error.localizedDescription
         }
@@ -228,6 +288,27 @@ struct AuthenticationView: View {
     @MainActor
     private func signInWithFaceID() async {
         error = ""
+        info = ""
+
+        guard FirebaseService.shared.isConfigured else {
+            error = "Firebase is not configured. Check GoogleService-Info.plist and restart the app."
+            return
+        }
+
+        // Face ID confirms the identity of the account already signed in to
+        // Firebase on this device. It cannot replace the first password sign-in
+        // or recover a Firebase session after the user has signed out.
+        guard let accountEmail = FirebaseService.shared.currentUserEmail else {
+            error = "Sign in once with your email and password on this device before using Face ID."
+            return
+        }
+
+        guard faceIDService.isAvailable else {
+            error = faceIDService.unavailableMessage
+                ?? "Face ID is unavailable. Set it up in device settings, then try again."
+            return
+        }
+
         isAuthenticatingWithFaceID = true
 
         let authenticated = await faceIDService.authenticate()
@@ -235,12 +316,7 @@ struct AuthenticationView: View {
         isAuthenticatingWithFaceID = false
 
         guard authenticated else {
-            error = "Face ID was unavailable or authentication was cancelled. Sign in with your password instead."
-            return
-        }
-
-        guard let accountEmail = FirebaseService.shared.currentUserEmail else {
-            error = "Please sign in once with your email and password before using Face ID."
+            error = "Face ID was cancelled or did not recognize you. Sign in with your password instead."
             return
         }
 
@@ -261,10 +337,15 @@ struct AuthenticationView: View {
                 role: role.rawValue.lowercased()
             )
 
+            guard let profile = try await FirebaseService.shared.restoredProfile(),
+                  profile.role == role else {
+                throw FirebaseSetupError.roleMismatch
+            }
+
             app.signIn(
-                name: displayName,
-                email: cleanEmail,
-                role: role
+                name: profile.name,
+                email: profile.email,
+                role: profile.role
             )
         } catch {
             self.error = error.localizedDescription

@@ -1,0 +1,207 @@
+// REVIEW DRAFT ONLY. Not deployed. Requires the documented data migration,
+// trusted role/link provisioning, and Swift changes before it is compatible.
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() { return request.auth != null; }
+    function userPath(uid) { return /databases/$(database)/documents/users/$(uid); }
+    function studentPath(id) { return /databases/$(database)/documents/students/$(id); }
+    function classPath(id) { return /databases/$(database)/documents/classes/$(id); }
+    function assignmentPath(uid, classId) {
+      return /databases/$(database)/documents/studentClassAssignments/$(uid + '_' + classId);
+    }
+    function profileRole(role) {
+      return signedIn() && exists(userPath(request.auth.uid))
+        && get(userPath(request.auth.uid)).data.role == role;
+    }
+    // Tutor privilege is provisioned as a Firebase Auth custom claim by a
+    // trusted Admin SDK process; a client-created profile cannot grant it.
+    function tutor() {
+      return profileRole('tutor') && request.auth.token.role == 'tutor';
+    }
+    function student() { return profileRole('student'); }
+    function linkedStudentRecord() {
+      return student()
+        && get(userPath(request.auth.uid)).data.studentRecordId is string
+        && exists(studentPath(get(userPath(request.auth.uid)).data.studentRecordId))
+        && get(studentPath(get(userPath(request.auth.uid)).data.studentRecordId)).data.studentUserId == request.auth.uid;
+    }
+    function ownsStudent(id) {
+      return tutor() && exists(studentPath(id))
+        && get(studentPath(id)).data.tutorId == request.auth.uid;
+    }
+    function ownsClass(id) {
+      return tutor() && exists(classPath(id))
+        && get(classPath(id)).data.tutorId == request.auth.uid;
+    }
+    function assignedStudent(uid, classId) {
+      return linkedStudentRecord()
+        && exists(assignmentPath(uid, classId))
+        && get(assignmentPath(uid, classId)).data.studentRecordId
+          == get(userPath(uid)).data.studentRecordId;
+    }
+    function validProfile(uid) {
+      return request.resource.data.keys().hasAll(['uid','displayName','email','role','createdAt'])
+        && request.resource.data.keys().hasOnly(['uid','displayName','email','role','createdAt','updatedAt','studentRecordId'])
+        && request.resource.data.uid == uid
+        && request.resource.data.email == request.auth.token.email
+        && request.resource.data.displayName is string
+        && request.resource.data.role in ['tutor','student']
+        && request.resource.data.createdAt is timestamp;
+    }
+
+    match /users/{uid} {
+      // Self-registration may create a student profile only. Tutor profiles
+      // and the studentRecordId link are provisioned by trusted backend code.
+      allow create: if signedIn() && request.auth.uid == uid && validProfile(uid)
+        && request.resource.data.role == 'student'
+        && !('studentRecordId' in request.resource.data);
+      allow read: if signedIn() && request.auth.uid == uid;
+      allow update: if signedIn() && request.auth.uid == uid && validProfile(uid)
+        && request.resource.data.uid == resource.data.uid
+        && request.resource.data.email == resource.data.email
+        && request.resource.data.role == resource.data.role
+        && request.resource.data.createdAt == resource.data.createdAt
+        && request.resource.data.get('studentRecordId', null) == resource.data.get('studentRecordId', null);
+      allow delete: if false;
+    }
+
+    match /students/{studentId} {
+      function validStudent() {
+        return request.resource.data.keys().hasAll(['id','name','email','grade','phone','attendanceRate','score','paid','tutorId','createdAt','studentUserId'])
+          && request.resource.data.keys().hasOnly(['id','name','email','grade','phone','attendanceRate','score','paid','tutorId','createdAt','studentUserId'])
+          && request.resource.data.id == studentId
+          && request.resource.data.name is string && request.resource.data.email is string
+          && request.resource.data.grade is string && request.resource.data.phone is string
+          && request.resource.data.attendanceRate is int && request.resource.data.attendanceRate >= 0 && request.resource.data.attendanceRate <= 100
+          && request.resource.data.score is int && request.resource.data.score >= 0 && request.resource.data.paid is bool
+          && request.resource.data.tutorId is string && request.resource.data.createdAt is timestamp
+          && (request.resource.data.studentUserId == null || request.resource.data.studentUserId is string);
+      }
+      allow create: if tutor() && validStudent()
+        && request.resource.data.tutorId == request.auth.uid
+        && request.resource.data.studentUserId == null;
+      allow read: if (tutor() && resource.data.tutorId == request.auth.uid)
+        || (student() && linkedStudentRecord() && resource.data.studentUserId == request.auth.uid
+          && resource.data.studentRecordId == get(userPath(request.auth.uid)).data.studentRecordId);
+      allow update: if tutor() && resource.data.tutorId == request.auth.uid
+        && request.resource.data.tutorId == resource.data.tutorId
+        && request.resource.data.id == resource.data.id
+        && request.resource.data.createdAt == resource.data.createdAt
+        && request.resource.data.studentUserId == resource.data.studentUserId && validStudent();
+      allow delete: if tutor() && resource.data.tutorId == request.auth.uid
+        && resource.data.studentUserId == null;
+    }
+
+    match /classes/{classId} {
+      function validClass() {
+        return request.resource.data.keys().hasAll(['id','title','subject','date','time','duration','location','students','tutorId','createdAt'])
+          && request.resource.data.keys().hasOnly(['id','title','subject','date','time','duration','location','students','tutorId','createdAt'])
+          && request.resource.data.id == classId
+          && request.resource.data.title is string && request.resource.data.subject is string
+          && request.resource.data.date is timestamp && request.resource.data.time is string
+          && request.resource.data.duration is string && request.resource.data.location is string
+          && request.resource.data.students is int && request.resource.data.students >= 0
+          && request.resource.data.tutorId is string && request.resource.data.createdAt is timestamp;
+      }
+      allow create: if tutor() && validClass() && request.resource.data.tutorId == request.auth.uid;
+      allow read: if (tutor() && resource.data.tutorId == request.auth.uid)
+        || (student() && assignedStudent(request.auth.uid, classId));
+      allow update: if tutor() && resource.data.tutorId == request.auth.uid
+        && request.resource.data.tutorId == resource.data.tutorId
+        && request.resource.data.id == resource.data.id
+        && request.resource.data.createdAt == resource.data.createdAt && validClass();
+      // Client must remove assignment documents before deleting a class;
+      // Firestore does not cascade-delete subcollections.
+      allow delete: if tutor() && resource.data.tutorId == request.auth.uid;
+    }
+
+    // Top-level documents make a student's assignment query provable:
+    // where('studentUserId', isEqualTo: request.auth.uid). The stable ID is
+    // <auth UID>_<class document ID>; only tutors may mutate assignments.
+    match /studentClassAssignments/{assignmentId} {
+      function validAssignment() {
+        return request.resource.data.keys().hasAll(['studentUserId','studentRecordId','tutorId','classId','createdAt'])
+          && request.resource.data.keys().hasOnly(['studentUserId','studentRecordId','tutorId','classId','createdAt'])
+          && request.resource.data.studentUserId is string
+          && assignmentId == request.resource.data.studentUserId + '_' + request.resource.data.classId
+          && request.resource.data.studentRecordId is string
+          && request.resource.data.tutorId == request.auth.uid
+          && request.resource.data.classId is string
+          && request.resource.data.createdAt is timestamp
+          && ownsClass(request.resource.data.classId)
+          && ownsStudent(request.resource.data.studentRecordId)
+          && get(studentPath(request.resource.data.studentRecordId)).data.studentUserId == request.resource.data.studentUserId;
+      }
+      allow create: if tutor() && validAssignment();
+      allow read: if (tutor() && resource.data.tutorId == request.auth.uid)
+        || (student() && linkedStudentRecord() && resource.data.studentUserId == request.auth.uid
+          && resource.data.studentRecordId == get(userPath(request.auth.uid)).data.studentRecordId);
+      allow update: if tutor() && resource.data.tutorId == request.auth.uid
+        && request.resource.data.studentUserId == resource.data.studentUserId
+        && request.resource.data.studentRecordId == resource.data.studentRecordId
+        && request.resource.data.classId == resource.data.classId
+        && request.resource.data.tutorId == resource.data.tutorId
+        && request.resource.data.createdAt == resource.data.createdAt && validAssignment();
+      allow delete: if tutor() && resource.data.tutorId == request.auth.uid
+        && ownsClass(resource.data.classId) && ownsStudent(resource.data.studentRecordId);
+    }
+
+    match /attendance/{attendanceId} {
+      function validAttendance() {
+        return request.resource.data.keys().hasAll(['id','studentId','studentUserId','studentName','classId','className','date','status','tutorId','recordType','createdAt','updatedAt'])
+          && request.resource.data.keys().hasOnly(['id','studentId','studentUserId','studentName','classId','className','date','status','tutorId','recordType','createdAt','updatedAt'])
+          && request.resource.data.id == attendanceId
+          && request.resource.data.studentId is string && request.resource.data.studentUserId is string
+          && request.resource.data.studentName is string && request.resource.data.classId is string
+          && request.resource.data.className is string && request.resource.data.date is timestamp
+          && request.resource.data.status in ['Present','Absent','Late']
+          && request.resource.data.tutorId == request.auth.uid && request.resource.data.recordType == 'manual'
+          && request.resource.data.createdAt is timestamp && request.resource.data.updatedAt is timestamp
+          && ownsStudent(request.resource.data.studentId) && ownsClass(request.resource.data.classId)
+          && get(studentPath(request.resource.data.studentId)).data.studentUserId == request.resource.data.studentUserId
+          && exists(assignmentPath(request.resource.data.studentUserId, request.resource.data.classId))
+          && get(assignmentPath(request.resource.data.studentUserId, request.resource.data.classId)).data.studentRecordId == request.resource.data.studentId
+          && get(assignmentPath(request.resource.data.studentUserId, request.resource.data.classId)).data.tutorId == request.auth.uid;
+      }
+      allow create: if tutor() && validAttendance();
+      allow read: if (tutor() && resource.data.tutorId == request.auth.uid)
+        || (student() && linkedStudentRecord() && resource.data.studentUserId == request.auth.uid
+          && resource.data.studentId == get(userPath(request.auth.uid)).data.studentRecordId);
+      allow update: if tutor() && resource.data.recordType == 'manual'
+        && resource.data.tutorId == request.auth.uid && validAttendance()
+        && request.resource.data.studentId == resource.data.studentId
+        && request.resource.data.studentUserId == resource.data.studentUserId
+        && request.resource.data.classId == resource.data.classId
+        && request.resource.data.createdAt == resource.data.createdAt;
+      allow delete: if false;
+    }
+
+    match /payments/{paymentId} {
+      function validPayment() {
+        return request.resource.data.keys().hasAll(['id','studentId','studentUserId','studentName','description','amount','date','isPaid','tutorId','createdAt','updatedAt'])
+          && request.resource.data.keys().hasOnly(['id','studentId','studentUserId','studentName','description','amount','date','isPaid','tutorId','createdAt','updatedAt'])
+          && request.resource.data.id == paymentId
+          && request.resource.data.studentId is string && request.resource.data.studentUserId is string
+          && request.resource.data.studentName is string && request.resource.data.description is string
+          && (request.resource.data.amount is int || request.resource.data.amount is float)
+          && request.resource.data.amount > 0 && request.resource.data.date is timestamp
+          && request.resource.data.isPaid is bool && request.resource.data.tutorId == request.auth.uid
+          && request.resource.data.createdAt is timestamp && request.resource.data.updatedAt is timestamp
+          && ownsStudent(request.resource.data.studentId)
+          && get(studentPath(request.resource.data.studentId)).data.studentUserId == request.resource.data.studentUserId;
+      }
+      allow create: if tutor() && validPayment();
+      allow read: if (tutor() && resource.data.tutorId == request.auth.uid)
+        || (student() && linkedStudentRecord() && resource.data.studentUserId == request.auth.uid
+          && resource.data.studentId == get(userPath(request.auth.uid)).data.studentRecordId);
+      allow update: if tutor() && resource.data.tutorId == request.auth.uid
+        && request.resource.data.tutorId == resource.data.tutorId
+        && request.resource.data.id == resource.data.id
+        && request.resource.data.studentId == resource.data.studentId
+        && request.resource.data.studentUserId == resource.data.studentUserId
+        && request.resource.data.createdAt == resource.data.createdAt && validPayment();
+      allow delete: if tutor() && resource.data.tutorId == request.auth.uid;
+    }
+  }
+}

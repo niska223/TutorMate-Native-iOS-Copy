@@ -7,22 +7,17 @@ final class AppController: ObservableObject {
     // MARK: - Navigation and Profile
 
     @Published var route: AppRoute = .welcome
-    @Published var displayName = "Niska Wijesinghe"
-    @Published var email = "niska@example.com"
-    @Published var notificationsEnabled = true
-    @Published var faceIDEnabled = true
-    @Published var paymentAlertsEnabled = true
+    @Published var displayName = "TutorMate User"
+    @Published var email = ""
+    @Published private(set) var activeRole: UserRole?
+    @Published var notificationsEnabled = UserDefaults.standard.bool(forKey: "tutormate.classReminders.enabled")
+    @Published var faceIDEnabled = UserDefaults.standard.bool(forKey: "tutormate.faceID.enabled")
+    @Published private(set) var isSendingPasswordReset = false
     @Published var toastMessage: String?
 
     // MARK: - Students
 
-    @Published var students: [Student] = [
-        Student(name: "Maya Silva", email: "maya@example.com", grade: "Grade 11", phone: "077 123 4567", attendanceRate: 94, score: 86, paid: true),
-        Student(name: "Nethmi Fernando", email: "nethmi@example.com", grade: "Grade 10", phone: "071 234 5678", attendanceRate: 88, score: 92, paid: true),
-        Student(name: "Aiden Perera", email: "aiden@example.com", grade: "Grade 11", phone: "076 345 6789", attendanceRate: 80, score: 78, paid: false),
-        Student(name: "Savin Jay", email: "savin@example.com", grade: "Grade 9", phone: "075 456 7890", attendanceRate: 96, score: 90, paid: true),
-        Student(name: "Rashmi de Silva", email: "rashmi@example.com", grade: "Grade 10", phone: "072 567 8901", attendanceRate: 91, score: 84, paid: false)
-    ]
+    @Published var students: [Student] = []
 
     @Published private(set) var isLoadingStudents = false
     private var persistedStudentIDs = Set<UUID>()
@@ -42,42 +37,23 @@ final class AppController: ObservableObject {
 
     // MARK: - Classes (currently local)
 
-    @Published var sessions: [ClassSession] = [
-        ClassSession(title: "Grade 11 Mathematics", subject: "Mathematics", date: Calendar.current.date(byAdding: .hour, value: 1, to: .now) ?? .now, time: "10:30 AM", duration: "60 min", location: "Room 02", students: 5),
-        ClassSession(title: "ICT Group B", subject: "ICT", date: Calendar.current.date(byAdding: .hour, value: 7, to: .now) ?? .now, time: "5:30 PM", duration: "90 min", location: "Online", students: 8),
-        ClassSession(title: "Physics Revision", subject: "Physics", date: Calendar.current.date(byAdding: .day, value: 2, to: .now) ?? .now, time: "3:00 PM", duration: "60 min", location: "Room 01", students: 6),
-        ClassSession(title: "Algebra Practice", subject: "Mathematics", date: Calendar.current.date(byAdding: .day, value: 3, to: .now) ?? .now, time: "4:00 PM", duration: "60 min", location: "Online", students: 5)
-    ] {
+    @Published var sessions: [ClassSession] = [] {
         didSet { syncWidgetData() }
     }
 
     // MARK: - Attendance (currently local)
 
-    @Published var attendance: [AttendanceRecord] = [
-        AttendanceRecord(studentName: "Maya Silva", className: "Grade 11 Mathematics", date: .now, status: .present),
-        AttendanceRecord(studentName: "Nethmi Fernando", className: "Grade 11 Mathematics", date: .now, status: .present),
-        AttendanceRecord(studentName: "Aiden Perera", className: "Grade 11 Mathematics", date: .now, status: .absent),
-        AttendanceRecord(studentName: "Savin Jay", className: "Grade 11 Mathematics", date: .now, status: .present),
-        AttendanceRecord(studentName: "Rashmi de Silva", className: "Grade 11 Mathematics", date: .now, status: .present)
-    ]
+    @Published var attendance: [AttendanceRecord] = []
 
     // MARK: - Payments (currently local)
 
-    @Published var payments: [Payment] = [
-        Payment(studentName: "Maya Silva", description: "June fee", amount: 120, date: .now, isPaid: true),
-        Payment(studentName: "Nethmi Fernando", description: "June fee", amount: 120, date: .now, isPaid: true),
-        Payment(studentName: "Aiden Perera", description: "June fee", amount: 160, date: .now, isPaid: false)
-    ]
+    @Published var payments: [Payment] = []
 
     // MARK: - Assessments and Gamification (currently local)
 
-    @Published var assessments: [Assessment] = [
-        Assessment(title: "Algebra Quiz", subject: "Mathematics", dateLabel: "Jun 12", score: 86),
-        Assessment(title: "Database Basics", subject: "ICT", dateLabel: "Jun 6", score: 92),
-        Assessment(title: "Mechanics Test", subject: "Physics", dateLabel: "May 28", score: 81)
-    ]
+    @Published var assessments: [Assessment] = []
 
-    @Published var studentPoints = 340
+    @Published var studentPoints = 0
     @Published var nfcCheckedIn = false
 
     init() {
@@ -87,24 +63,19 @@ final class AppController: ObservableObject {
     // MARK: - Widget
 
     private func syncWidgetData() {
+        guard route == .tutor else {
+            WidgetSharedStore.clear()
+            return
+        }
         let upcoming = sessions
-            .filter { $0.date >= .now }
-            .sorted { $0.date < $1.date }
+            .filter { $0.scheduledDateTime >= .now }
+            .sorted { $0.scheduledDateTime < $1.scheduledDateTime }
             .first
 
-        let payload: [String: String] = [
-            "classTitle": upcoming?.title ?? "No upcoming class",
-            "classTime": upcoming.map { "\($0.time) · \($0.location)" } ?? "Open TutorMate to schedule a class",
-            "tutorName": displayName,
-            "attendanceStreak": "5 classes",
-            "updatedAt": ISO8601DateFormatter().string(from: .now)
-        ]
-
-        if let data = try? JSONSerialization.data(withJSONObject: payload),
-           let defaults = UserDefaults(suiteName: "group.com.example.tutormate") {
-            defaults.set(data, forKey: "tutormate.widget.nextClass")
-            WidgetCenter.shared.reloadTimelines(ofKind: "TutorMateWidget")
-        }
+        WidgetSharedStore.save(WidgetPayload(role: "tutor", classTitle: upcoming?.title,
+            subject: upcoming?.subject, classDate: upcoming?.scheduledDateTime, classTime: upcoming?.time,
+            location: upcoming?.location, tutorName: displayName,
+            attendanceStreak: WidgetPayload.streak(from: attendance.map { (date: $0.date, attended: $0.status == .present || $0.status == .late) })))
     }
 
     // MARK: - Finance Calculations
@@ -120,6 +91,7 @@ final class AppController: ObservableObject {
     // MARK: - Sign In and Sign Out
 
     func signIn(name: String, email: String, role: UserRole) {
+        activeRole = role
         if !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             displayName = name
         }
@@ -127,8 +99,8 @@ final class AppController: ObservableObject {
             self.email = email
         }
 
-        syncWidgetData()
         route = role == .tutor ? .tutor : .student
+        syncWidgetData()
 
         if role == .tutor && FirebaseService.shared.isConfigured {
             studentLoadTask?.cancel()
@@ -161,11 +133,77 @@ final class AppController: ObservableObject {
             paymentLoadTask = Task { @MainActor in
                 await loadTutorPayments()
             }
+        } else {
+            studentLoadTask?.cancel()
+            classLoadTask?.cancel()
+            attendanceLoadTask?.cancel()
+            paymentLoadTask?.cancel()
+            students = []
+            sessions = []
+            attendance = []
+            payments = []
+            assessments = []
+            studentPoints = 0
+            persistedStudentIDs.removeAll()
+            persistedClassIDs.removeAll()
+            persistedPaymentIDs.removeAll()
+            updatingPaymentIDs.removeAll()
         }
     }
 
     func register(role: UserRole, name: String, email: String) {
         signIn(name: name, email: email, role: role)
+    }
+
+    func restoreAuthentication() async {
+        guard route == .welcome, FirebaseService.shared.isConfigured else { return }
+        if faceIDEnabled, FirebaseService.shared.currentUserEmail != nil {
+            do {
+                guard let profile = try await FirebaseService.shared.restoredProfile() else { return }
+                // Route to the credential screen with the saved Firebase session.
+                // Face ID is invoked only when the user taps its button there.
+                activeRole = profile.role
+                displayName = profile.name
+                email = profile.email
+                route = profile.role == .tutor ? .tutorAuth : .studentAuth
+            } catch {
+                showToast("Could not restore your account: \(error.localizedDescription)")
+            }
+            return
+        }
+        do {
+            guard let profile = try await FirebaseService.shared.restoredProfile() else { return }
+            signIn(name: profile.name, email: profile.email, role: profile.role)
+        } catch {
+            showToast("Saved session could not be restored: \(error.localizedDescription)")
+        }
+    }
+
+    /// Locks the app UI while preserving Firebase's local session so Face ID
+    /// can unlock that account on the next sign-in screen.
+    func lockWithFaceID() {
+        guard faceIDEnabled,
+              FirebaseService.shared.currentUserEmail != nil,
+              let activeRole else {
+            showToast("Enable Face ID and keep your account signed in before using Lock with Face ID.")
+            return
+        }
+
+        studentLoadTask?.cancel()
+        classLoadTask?.cancel()
+        attendanceLoadTask?.cancel()
+        paymentLoadTask?.cancel()
+        students = []
+        sessions = []
+        attendance = []
+        payments = []
+        assessments = []
+        studentPoints = 0
+        persistedStudentIDs.removeAll()
+        persistedClassIDs.removeAll()
+        persistedPaymentIDs.removeAll()
+        updatingPaymentIDs.removeAll()
+        route = activeRole == .tutor ? .tutorAuth : .studentAuth
     }
 
     func signOut() {
@@ -186,6 +224,7 @@ final class AppController: ObservableObject {
             showToast("Sign-out error: \(error.localizedDescription)")
         }
 
+        activeRole = nil
         isLoadingStudents = false
         isLoadingClasses = false
         isLoadingAttendance = false
@@ -253,6 +292,7 @@ final class AppController: ObservableObject {
 
             sessions = savedClasses.sorted { $0.date < $1.date }
             persistedClassIDs = Set(savedClasses.map(\.id))
+            if notificationsEnabled { await refreshClassReminders() }
 
             showToast(
                 savedClasses.isEmpty
@@ -272,6 +312,49 @@ final class AppController: ObservableObject {
 
     func showToast(_ message: String) {
         toastMessage = message
+    }
+
+    func setFaceIDEnabled(_ enabled: Bool) {
+        faceIDEnabled = enabled
+        UserDefaults.standard.set(enabled, forKey: "tutormate.faceID.enabled")
+    }
+
+    func updateStudentProfileName(_ proposedName: String) async -> Bool {
+        guard route == .student else { return false }
+        let cleanName = proposedName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !cleanName.isEmpty else {
+            showToast("Name cannot be empty.")
+            return false
+        }
+        do {
+            try await FirebaseService.shared.updateStudentProfileName(cleanName)
+            displayName = cleanName
+            showToast("Profile name updated.")
+            return true
+        } catch {
+            showToast("Could not update your profile: \(error.localizedDescription)")
+            return false
+        }
+    }
+
+    func sendPasswordResetEmail() async {
+        guard let email = FirebaseService.shared.currentUserEmail else {
+            showToast("Enter your account email on the sign-in screen to reset your password.")
+            return
+        }
+        await sendPasswordResetEmail(to: email)
+    }
+
+    func sendPasswordResetEmail(to email: String) async {
+        guard !isSendingPasswordReset else { return }
+        isSendingPasswordReset = true
+        defer { isSendingPasswordReset = false }
+        do {
+            try await FirebaseService.shared.sendPasswordResetEmail(to: email)
+            showToast("Password reset email sent. Follow the link in your inbox to choose a new password.")
+        } catch {
+            showToast("Could not send the password reset email: \(error.localizedDescription)")
+        }
     }
 
     // MARK: - Attendance (Firestore)
@@ -301,19 +384,21 @@ final class AppController: ObservableObject {
         status: AttendanceStatus,
         session: ClassSession? = nil
     ) {
-        let className = session?.title ?? "Grade 11 Mathematics"
-        let selectedSession = session ?? sessions.first(where: { $0.title == className })
+        let selectedSession = session
+        let className = selectedSession?.title ?? ""
 
         let record: AttendanceRecord
         if let index = attendance.firstIndex(where: {
-            $0.studentName == student.name &&
-            $0.className == className &&
+            (($0.studentID == student.id) || ($0.studentID == nil && $0.studentName == student.name)) &&
+            (($0.classID == selectedSession?.id) || ($0.classID == nil && $0.className == className)) &&
             Calendar.current.isDateInToday($0.date)
         }) {
             attendance[index].status = status
             record = attendance[index]
         } else {
             let newRecord = AttendanceRecord(
+                studentID: student.id,
+                classID: selectedSession?.id,
                 studentName: student.name,
                 className: className,
                 date: .now,
@@ -354,6 +439,23 @@ final class AppController: ObservableObject {
                 showToast("Attendance could not be saved: \(error.localizedDescription)")
             }
         }
+    }
+
+    func recordNFCAttendance(student: Student, session: ClassSession) async throws {
+        guard route == .tutor, persistedStudentIDs.contains(student.id), persistedClassIDs.contains(session.id) else {
+            throw FirebaseSetupError.notTutor
+        }
+        let existing = attendance.first {
+            (($0.studentID == student.id) || ($0.studentID == nil && $0.studentName == student.name)) &&
+            (($0.classID == session.id) || ($0.classID == nil && $0.className == session.title)) &&
+            Calendar.current.isDateInToday($0.date)
+        }
+        let record = AttendanceRecord(id: existing?.id ?? UUID(), studentID: student.id, classID: session.id,
+            studentName: student.name, className: session.title, date: existing?.date ?? .now, status: .present)
+        try await FirebaseService.shared.saveAttendanceRecord(record, student: student, session: session)
+        if let index = attendance.firstIndex(where: { $0.studentName == student.name && $0.className == session.title && Calendar.current.isDateInToday($0.date) }) { attendance[index].status = .present }
+        else { attendance.append(record) }
+        showToast("NFC attendance saved.")
     }
 
     // MARK: - Add Class (Firestore)
@@ -403,12 +505,55 @@ final class AppController: ObservableObject {
 
             sessions.append(newSession)
             persistedClassIDs.insert(newSession.id)
+            if notificationsEnabled { await scheduleClassReminder(newSession) }
             showToast("Class saved successfully.")
             return true
         } catch {
             showToast("Could not save class: \(error.localizedDescription)")
             return false
         }
+    }
+
+    func updateClass(_ session: ClassSession) async -> Bool {
+        do {
+            try await FirebaseService.shared.updateClass(session)
+            if let index = sessions.firstIndex(where: { $0.id == session.id }) { sessions[index] = session }
+            NotificationService.shared.cancelReminder(for: session.id)
+            if notificationsEnabled { await scheduleClassReminder(session) }
+            showToast("Class updated successfully."); return true
+        } catch { showToast("Could not update class: \(error.localizedDescription)"); return false }
+    }
+
+    func deleteClass(_ session: ClassSession) async -> Bool {
+        do {
+            try await FirebaseService.shared.deleteClass(session)
+            sessions.removeAll { $0.id == session.id }; persistedClassIDs.remove(session.id)
+            NotificationService.shared.cancelReminder(for: session.id)
+            showToast("Class deleted."); return true
+        } catch { showToast("Could not delete class: \(error.localizedDescription)"); return false }
+    }
+
+    func setClassRemindersEnabled(_ enabled: Bool) async {
+        if enabled {
+            guard await NotificationService.shared.requestPermission() else { notificationsEnabled = false; showToast("Notification permission was not granted."); return }
+            notificationsEnabled = true
+            UserDefaults.standard.set(true, forKey: "tutormate.classReminders.enabled")
+            await refreshClassReminders()
+        } else {
+            notificationsEnabled = false
+            UserDefaults.standard.set(false, forKey: "tutormate.classReminders.enabled")
+            await NotificationService.shared.cancelAllClassReminders()
+        }
+    }
+
+    private func refreshClassReminders() async {
+        await NotificationService.shared.cancelAllClassReminders()
+        for session in sessions { await scheduleClassReminder(session) }
+    }
+
+    private func scheduleClassReminder(_ session: ClassSession) async {
+        do { try await NotificationService.shared.scheduleReminder(for: session) }
+        catch { showToast("Reminder not scheduled: \(error.localizedDescription)") }
     }
 
     // MARK: - Add Student (Firestore)
@@ -422,8 +567,8 @@ final class AppController: ObservableObject {
             showToast("Enter the student's name.")
             return
         }
-        guard !cleanEmail.isEmpty else {
-            showToast("Enter the student's email.")
+        guard cleanEmail.contains("@"), cleanEmail.contains(".") else {
+            showToast("Enter a valid student email address.")
             return
         }
         guard !cleanGrade.isEmpty else {
@@ -461,6 +606,27 @@ final class AppController: ObservableObject {
                 showToast("Could not save student: \(error.localizedDescription)")
             }
         }
+    }
+
+    func updateStudent(_ student: Student) async -> Bool {
+        guard !student.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              student.email.contains("@"), !student.grade.isEmpty else {
+            showToast("Enter a name, valid email and grade."); return false
+        }
+        do {
+            try await FirebaseService.shared.updateStudent(student)
+            if let i = students.firstIndex(where: { $0.id == student.id }) { students[i] = student }
+            showToast("Student updated."); return true
+        } catch { showToast("Could not update student: \(error.localizedDescription)"); return false }
+    }
+
+    func deleteStudent(_ student: Student) async -> Bool {
+        do {
+            try await FirebaseService.shared.deleteStudent(student)
+            students.removeAll { $0.id == student.id }
+            persistedStudentIDs.remove(student.id)
+            showToast("Student deleted."); return true
+        } catch { showToast("Could not delete student: \(error.localizedDescription)"); return false }
     }
 
     // MARK: - Load Payments from Firestore
@@ -571,7 +737,9 @@ final class AppController: ObservableObject {
             defer { updatingPaymentIDs.remove(payment.id) }
 
             do {
-                try await FirebaseService.shared.updatePaymentPaidStatus(payment)
+                var updatedPayment = payment
+                updatedPayment.isPaid = true
+                try await FirebaseService.shared.updatePayment(updatedPayment)
                 guard route == .tutor else { return }
 
                 guard let paymentIndex = payments.firstIndex(where: { $0.id == payment.id }) else {
@@ -579,32 +747,23 @@ final class AppController: ObservableObject {
                 }
                 payments[paymentIndex].isPaid = true
 
-                if let studentIndex = students.firstIndex(where: { $0.name == payment.studentName }) {
-                    let previousPaid = students[studentIndex].paid
-                    students[studentIndex].paid = true
-                    let updatedStudent = students[studentIndex]
-
-                    if persistedStudentIDs.contains(updatedStudent.id) {
-                        do {
-                            try await FirebaseService.shared.updateStudent(updatedStudent)
-                            showToast("Payment marked as paid.")
-                        } catch {
-                            students[studentIndex].paid = previousPaid
-                            showToast(
-                                "Payment was saved, but the student paid flag could not be updated: \(error.localizedDescription)"
-                            )
-                        }
-                    } else {
-                        showToast("Payment marked as paid.")
-                    }
-                } else {
-                    showToast("Payment marked as paid.")
-                }
+                showToast("Payment marked as paid.")
             } catch {
                 guard route == .tutor else { return }
                 showToast(firestorePermissionMessage(from: error, fallback: "Could not mark payment as paid"))
             }
         }
+    }
+
+    func updatePayment(_ payment: Payment) async -> Bool {
+        guard !payment.studentName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              !payment.description.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              payment.amount.isFinite, payment.amount > 0 else { showToast("Enter a student, description and valid amount."); return false }
+        do {
+            try await FirebaseService.shared.updatePayment(payment)
+            if let i = payments.firstIndex(where: { $0.id == payment.id }) { payments[i] = payment }
+            showToast("Payment updated."); return true
+        } catch { showToast(firestorePermissionMessage(from: error, fallback: "Could not update payment")); return false }
     }
 
     private func firestorePermissionMessage(from error: Error, fallback: String) -> String {

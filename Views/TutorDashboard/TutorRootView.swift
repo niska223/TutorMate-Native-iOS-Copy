@@ -49,7 +49,10 @@ struct TutorRootView: View {
                     case .students:
                         TutorStudentsView()
                     case .attendance:
-                        TutorAttendanceView()
+                        TutorAttendanceView(
+                            onManageClasses: { section = .classes },
+                            onManageStudents: { section = .students }
+                        )
                     case .payments:
                         TutorPaymentsView()
                     case .finance:
@@ -63,6 +66,11 @@ struct TutorRootView: View {
                         Menu {
                             Button("Notifications", systemImage: "bell") {
                                 app.showToast("You're all caught up")
+                            }
+                            if app.faceIDEnabled {
+                                Button("Lock with Face ID", systemImage: "faceid") {
+                                    app.lockWithFaceID()
+                                }
                             }
                             Button("Sign out", systemImage: "rectangle.portrait.and.arrow.right", role: .destructive) {
                                 app.signOut()

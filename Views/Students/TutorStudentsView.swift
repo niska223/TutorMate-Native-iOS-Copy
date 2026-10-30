@@ -5,6 +5,7 @@ struct TutorStudentsView: View {
     @State private var query = ""
     @State private var showAdd = false
     @State private var selectedStudent: Student?
+    @State private var editingStudent: Student?
     private var filtered: [Student] { app.students.filter { query.isEmpty || $0.name.localizedCaseInsensitiveContains(query) || $0.grade.localizedCaseInsensitiveContains(query) } }
     var body: some View {
         ScrollView {
@@ -19,6 +20,8 @@ struct TutorStudentsView: View {
                     Spacer()
                     Button { showAdd = true } label: { Label("Add student", systemImage: "plus") }.buttonStyle(.borderedProminent)
                 }
+                if app.isLoadingStudents { ProgressView("Loading saved students…").frame(maxWidth: .infinity).padding() }
+                else if filtered.isEmpty { ContentUnavailableView("No saved students", systemImage: "person.2", description: Text("Add a student to your tutor account.")) }
                 ForEach(filtered) { student in
                     Button { selectedStudent = student } label: {
                         TMCard {
@@ -33,12 +36,13 @@ struct TutorStudentsView: View {
                                 Image(systemName: "chevron.right").font(.caption).foregroundStyle(TMStyle.muted)
                             }
                         }
-                    }.buttonStyle(.plain)
+                    }.buttonStyle(.plain).accessibilityHint("Opens student details and management actions")
                 }
             }.padding(20).frame(maxWidth: 850).frame(maxWidth: .infinity, alignment: .topLeading)
         }.background(TMStyle.canvas)
         .sheet(isPresented: $showAdd) { AddStudentSheet() }
         .sheet(item: $selectedStudent) { StudentDetailSheet(student: $0) }
+        .sheet(item: $editingStudent) { EditStudentSheet(student: $0) }
     }
 }
 struct AvatarView: View {
@@ -74,7 +78,11 @@ private struct AddStudentSheet: View {
     }
 }
 private struct StudentDetailSheet: View {
+    @EnvironmentObject private var app: AppController
+    @Environment(\.dismiss) private var dismiss
     let student: Student
+    @State private var confirmDelete = false
+    @State private var showEdit = false
     var body: some View {
         NavigationStack {
             List {
@@ -97,6 +105,37 @@ private struct StudentDetailSheet: View {
                     LabeledContent("Phone", value: student.phone)
                 }
             }.navigationTitle("Student profile").navigationBarTitleDisplayMode(.inline)
+            .toolbar { ToolbarItem(placement: .topBarTrailing) { Menu {
+                Button("Edit student", systemImage: "pencil") { showEdit = true }
+                Button("Delete student", systemImage: "trash", role: .destructive) { confirmDelete = true }
+            } label: { Image(systemName: "ellipsis.circle").accessibilityLabel("Student actions") } } }
+            .sheet(isPresented: $showEdit) { EditStudentSheet(student: student) }
+            .confirmationDialog("Delete this student?", isPresented: $confirmDelete) {
+                Button("Delete", role: .destructive) { Task { if await app.deleteStudent(student) { dismiss() } } }
+            } message: { Text("This permanently removes the student record from your tutor account.") }
         }
+    }
+}
+
+private struct EditStudentSheet: View {
+    @EnvironmentObject private var app: AppController
+    @Environment(\.dismiss) private var dismiss
+    @State var student: Student
+    @State private var saving = false
+    @State private var error = ""
+    var body: some View {
+        NavigationStack { Form {
+            TextField("Full name", text: $student.name).textContentType(.name)
+            TextField("Email address", text: $student.email).keyboardType(.emailAddress).textInputAutocapitalization(.never)
+            TextField("Grade", text: $student.grade)
+            TextField("Phone", text: $student.phone).keyboardType(.phonePad)
+            if !error.isEmpty { Text(error).foregroundStyle(.red).accessibilityLabel("Error: \(error)") }
+        }.navigationTitle("Edit student").toolbar {
+            ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
+            ToolbarItem(placement: .confirmationAction) { Button(saving ? "Saving…" : "Save") { Task {
+                saving = true; let ok = await app.updateStudent(student); saving = false
+                if ok { dismiss() } else { error = app.toastMessage ?? "Update failed." }
+            }}.disabled(saving) }
+        }}
     }
 }

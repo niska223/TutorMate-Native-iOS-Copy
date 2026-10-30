@@ -2,7 +2,9 @@ import SwiftUI
 
 struct TutorAttendanceView: View {
     @EnvironmentObject private var app: AppController
-    @State private var selectedClass = "Grade 11 Mathematics"
+    var onManageClasses: () -> Void = {}
+    var onManageStudents: () -> Void = {}
+    @State private var selectedClassID: UUID?
     @State private var showNFC = false
 
     private var presentCount: Int {
@@ -11,8 +13,13 @@ struct TutorAttendanceView: View {
 
     private var todayRecords: [AttendanceRecord] {
         app.attendance.filter {
-            Calendar.current.isDateInToday($0.date) && $0.className == selectedClass
+            Calendar.current.isDateInToday($0.date) &&
+                (($0.classID == selectedClassID) || ($0.classID == nil && $0.className == selectedSession?.title))
         }
+    }
+    private var selectedSession: ClassSession? {
+        guard let selectedClassID else { return nil }
+        return app.sessions.first { $0.id == selectedClassID }
     }
 
     var body: some View {
@@ -23,14 +30,23 @@ struct TutorAttendanceView: View {
                     subtitle: "Track attendance manually or with NFC check-in."
                 )
 
-                Picker("Class", selection: $selectedClass) {
-                    ForEach(Array(Set(app.sessions.map(\.title))).sorted(), id: \.self) {
-                        Text($0)
+                Picker("Class", selection: $selectedClassID) {
+                    Text(app.sessions.isEmpty ? "No saved classes" : "Select class")
+                        .tag(UUID?.none)
+                    ForEach(app.sessions.sorted { $0.date < $1.date }) { session in
+                        Text("\(session.title) · \(session.subject) · \(session.date.formatted(date: .abbreviated, time: .omitted))")
+                            .tag(Optional(session.id))
                     }
                 }
                 .pickerStyle(.menu)
                 .padding(10)
                 .background(.white, in: RoundedRectangle(cornerRadius: 12))
+                .accessibilityLabel("Choose a saved class for attendance")
+                .disabled(app.sessions.isEmpty)
+
+                if app.sessions.isEmpty && !app.isLoadingClasses {
+                    ContentUnavailableView("No saved classes", systemImage: "calendar", description: Text("Create a class in the Classes tab before taking attendance."))
+                }
 
                 if app.isLoadingAttendance {
                     ProgressView("Loading saved attendance…")
@@ -92,7 +108,7 @@ struct TutorAttendanceView: View {
                                     }
                                     Spacer()
                                     let status = todayRecords.first(where: {
-                                        $0.studentName == student.name
+                                        $0.studentID == student.id || ($0.studentID == nil && $0.studentName == student.name)
                                     })?.status
                                     StatusPill(
                                         text: status?.rawValue ?? "Not marked",
@@ -106,9 +122,11 @@ struct TutorAttendanceView: View {
                                             app.markAttendance(
                                                 student: student,
                                                 status: status,
-                                                session: app.sessions.first(where: { $0.title == selectedClass })
+                                                session: selectedSession
                                             )
                                         }
+                                        .disabled(selectedSession == nil)
+                                        .accessibilityHint(selectedSession == nil ? "Save a class before recording attendance" : "Mark this student's attendance as \(status.rawValue)")
                                         .font(.caption.weight(.semibold))
                                         .frame(maxWidth: .infinity)
                                         .padding(.vertical, 8)
@@ -142,21 +160,25 @@ struct TutorAttendanceView: View {
         }
         .background(TMStyle.canvas)
         .sheet(isPresented: $showNFC) {
-            NFCScanSheet(isTutor: true)
+            NFCScanSheet(
+                isTutor: true,
+                onManageClasses: onManageClasses,
+                onManageStudents: onManageStudents
+            )
         }
         .onChange(of: app.sessions.map(\.id)) { _, ids in
-            if let selected = app.sessions.first(where: { $0.title == selectedClass }) {
-                selectedClass = selected.title
+            if let selectedClassID, ids.contains(selectedClassID) {
+                self.selectedClassID = selectedClassID
             } else if let first = app.sessions.sorted(by: { $0.date < $1.date }).first {
-                selectedClass = first.title
+                selectedClassID = first.id
             } else {
-                selectedClass = ""
+                selectedClassID = nil
             }
         }
         .onAppear {
-            if !app.sessions.contains(where: { $0.title == selectedClass }),
-               let first = app.sessions.sorted(by: { $0.date < $1.date }).first {
-                selectedClass = first.title
+            if let selectedClassID, app.sessions.contains(where: { $0.id == selectedClassID }) { return }
+            if let first = app.sessions.sorted(by: { $0.date < $1.date }).first {
+                selectedClassID = first.id
             }
         }
     }

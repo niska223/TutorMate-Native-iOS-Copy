@@ -1,0 +1,13 @@
+{
+  "name": "tutormate-firestore-rules-tests",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node prepare-rules.cjs && firebase emulators:exec --only firestore --project demo-tutormate-rules-test \"node --test test/*.test.js\""
+  },
+  "devDependencies": {
+    "@firebase/rules-unit-testing": "*",
+    "firebase": "*",
+    "firebase-tools": "*"
+  }
+}

@@ -1,52 +1,88 @@
-# TutorMate Native iOS — SwiftUI + MVC
+# TutorMate
 
-This is a native SwiftUI conversion starter based on the uploaded TutorMate web prototype.
+TutorMate is a SwiftUI iOS application for private tutors to manage student records, classes, attendance and fee records. It also includes a WidgetKit extension, biometric sign-in option, NFC attendance flow and local class reminders.
 
-## Screens represented
-- Welcome / role selection
-- Tutor sign-in and onboarding
-- Student sign-in and onboarding
-- Tutor dashboard, classes, students, attendance, payments, finance and settings
-- Student home, classes, progress and profile
-- NFC attendance demo flow
-- WidgetKit-style in-app preview
-- Separate sample WidgetKit extension source and XCTest examples
+## Features and current status
 
-## Design
-The UI uses the prototype's blue (`#2C73E8`), ink (`#172238`), pale canvas (`#F7F9FC`), rounded cards, soft accent colours and the two-role flow. The layouts are recreated in SwiftUI; some browser-specific CSS illustrations are approximated with SF Symbols and native SwiftUI shapes.
+- Firebase email/password registration and sign-in with tutor/student role profiles. A saved Firebase session is restored from the user's Firestore profile when the app launches.
+- Tutor student CRUD and tutor-owned class CRUD use Firestore and stable UUID document IDs.
+- Tutor attendance supports Present, Absent and Late. Its document ID is derived from student ID, class ID and date to make same-day writes idempotent.
+- Tutor payment records are loaded from Firestore; create, edit and paid/unpaid status updates are supported. Payment deletion is denied by the current rules.
+- Student accounts can read and update their own `users/{uid}` display profile. Student class, attendance, payment, assessment and assignment screens intentionally show access-unavailable states under the active rules; they do not display sample records.
+- Face ID is an optional local biometric gate/setting; Firebase remains the account authentication authority.
+- NFC scans require a physical supported iPhone and a text NDEF payload formatted `tutormate:v1:<class UUID>:<student UUID>`.
+- Local reminders can be enabled in tutor settings. Reminders are scheduled 15 minutes before class time and keyed by class ID.
+- The WidgetKit extension reads the app's shared App Group payload. It displays real tutor data when available; student assignment data is unavailable until secure assignments are implemented.
 
-## Project-file repair status
-The `.pbxproj` syntax was repaired after the Xcode parse error. The project file passes `plutil -lint`, and all Swift files pass a Swift parser check. These checks do **not** replace a build with Xcode; see `PROJECT_FILE_REPAIR.md` and complete the setup/test checklist below.
+Student account linking, student-specific assigned class/attendance/payment reads, and payment-to-student ID relationships are not yet active. The current Firestore rules do not authorize those operations. Student account linking and tutor-role provisioning require a trusted backend; see `FIREBASE_STUDENT_ACCOUNT_LINKING_PLAN.md`. `FIRESTORE_RULES_PROPOSED.txt` is a review proposal only; it has not been deployed or approved. `FIRESTORE_MANUAL_REVIEW.md` is a manual/static checklist, not evidence that rules compile or pass automated tests. The active rules also let a user self-select the `tutor` profile role; this must be addressed by trusted role provisioning and an approved security-rule change before treating tutor authorization as robust.
 
-## Open in Xcode
-1. Open `TutorMate.xcodeproj` on a Mac using Xcode 16 or later.
-2. Select the `TutorMate` scheme, choose your iPhone/iPad simulator, then let Xcode resolve the Firebase Swift Package dependencies.
-3. In **Signing & Capabilities**, choose your Apple development team and use a unique bundle identifier (the sample uses `com.example.TutorMate`).
-4. For Firebase: create a project in the Firebase Console, register this iOS bundle ID, download `GoogleService-Info.plist`, and add it to the **TutorMate app target**. Enable **Email/Password** under Authentication. The sign-in screen uses Firebase Auth when the configuration file is present; otherwise it explicitly remains in demo mode.
-5. Firestore attendance sync writes to the `attendance` collection. Create a Firestore database and configure secure rules before using real student data. The sample uses a demo identity for NFC attendance and must be replaced with the authenticated user's identity before production use.
-6. For NFC, use a supported physical iPhone and an NDEF-formatted tag. Enable NFC Tag Reading capability if Xcode requests it. The app entitlement and usage description are included. NFC scans read the tag payload; attendance syncs to Firestore only when Firebase is configured.
-7. Face ID is available from the sign-in screen. Add a device passcode/Face ID on the test device; simulator support can vary. Face ID verifies the device owner and is not a replacement for server authentication.
-8. `TutorMateWidget` is a separate Widget Extension target. In Apple Developer / Xcode Signing & Capabilities, enable the App Groups capability for BOTH the app and widget and create/select `group.com.example.tutormate` (or change the same identifier in both entitlements and both Swift files). Build both targets, then add the widget from the iOS Home Screen. The app writes the next scheduled class to shared App Group storage and requests a WidgetKit timeline refresh whenever the sessions array changes.
-9. Run the `TutorMateTests` test target. This package was generated in a non-macOS environment and **has not been compiled or tested in Xcode here**. You must open it on a Mac, resolve packages, configure signing/App Groups/Firebase, then build and run the app and test target before submission.
+## Technologies
 
-## Integration status and remaining setup
-- **Xcode project:** `TutorMate.xcodeproj` is included, with app, Widget Extension, and unit-test targets.
-- **Firebase:** Firebase SDK products are included and authentication/attendance service calls are wired. Your own `GoogleService-Info.plist`, Firebase Console setup, Firestore database and secure rules are required; those cannot be generated without access to your Firebase project. Without those, Firebase-backed sign-in and cloud attendance cannot be validated.
-- **NFC:** real NDEF reader session is implemented, but requires supported physical hardware and a correctly formatted tag. It cannot be validated in this environment.
-- **Face ID:** connected to the sign-in UI through LocalAuthentication; physical-device permission/device setup is required.
-- **WidgetKit:** a separate extension target reads the next-class payload from shared App Group storage. The main app writes the payload and requests timeline reloads. App Groups must be enabled for both targets and WidgetKit refresh timing is still controlled by iOS.
-- **Build verification:** not compiled or tested in Xcode. Please build and run the included test target on a Mac before treating it as submission-ready.
+Swift, SwiftUI, MVC-style separation, Firebase Authentication, Cloud Firestore, WidgetKit, App Groups, LocalAuthentication, Core NFC, UserNotifications, and XCTest.
 
-## MVC mapping
-- Models: typed data structures for students, tutor, class sessions, attendance, payments, assessments and navigation
-- Views: SwiftUI screen components and reusable visual components
-- Controllers: app state and business actions, plus small feature controllers
-- Services: integration boundaries for Firebase, notifications, NFC and Face ID
+## MVC structure
 
-## Fixes for recent Xcode build errors
+- `Models/`: typed student, class, attendance, payment and route models.
+- `Views/`: authentication, tutor/student dashboards, feature screens and reusable UI components.
+- `Controllers/`: app state and feature action coordination.
+- `Services/`: Firebase, NFC, Face ID and notification integrations.
+- `Widgets/TutorMateWidget/`: WidgetKit extension and shared payload storage model.
+- `Tests/`: XCTest target and business-logic tests.
 
-- `TutorRootView.swift`: removed the iOS-unavailable single-value `List(selection:)` initializer and changed the sidebar rows to buttons that update the selected section.
-- `NFCService.swift`: marked NFC delegate callbacks `nonisolated`, moved service state updates onto `MainActor`, and applied `@preconcurrency` to the delegate conformance to accommodate SDK protocol isolation differences.
-- `TutorMate.xcodeproj/project.pbxproj`: explicitly sets `ALWAYS_SEARCH_USER_PATHS = NO` and `USE_HEADERMAP = YES` for build configurations to avoid the legacy header-map setting warning.
+## Firebase setup
 
-These source/configuration fixes have been reviewed in this environment, but the project must still be built in Xcode to confirm compatibility with the installed Xcode and iOS SDK.
+1. Open `TutorMate.xcodeproj` in Xcode and resolve the checked-in Swift Package Manager dependencies.
+2. Register the app bundle identifier in your Firebase project and include the matching `GoogleService-Info.plist` in the TutorMate app target.
+3. Enable Email/Password in Firebase Authentication and create a Cloud Firestore database.
+4. Review `FIRESTORE_RULES.txt` carefully and deploy only the rules you have approved. Tutor CRUD and reads depend on a user profile with role `tutor` and records with matching `tutorId`.
+5. Student-linked access requires a secure account-linking flow and approved rule changes. The app does not currently establish the link, so student-facing private records remain unavailable.
+
+Collections currently used are `users`, `students`, `classes`, `attendance`, and `payments`. Tutor records are scoped by `tutorId`. Attendance documents also contain `studentId`, `classId`, date, status and record type. Current payment documents identify a student by display name only because the active rule schema does not permit a stable student ID field.
+
+## NFC setup
+
+Use an NFC-capable physical iPhone with NFC enabled and a compatible NDEF text tag. For the current tutor scan flow, encode `tutormate:v1:<class UUID>:<student UUID>` using IDs of records saved under that tutor. The scanner rejects mismatched payloads and reports success only after the Firestore attendance write returns. NFC cannot be validated in the iOS Simulator.
+
+## Face ID
+
+Use a device with Face ID/Touch ID enrolled and a device passcode enabled. The app includes the `NSFaceIDUsageDescription` privacy text. Biometric success does not create or replace a Firebase session.
+
+## WidgetKit and App Groups
+
+The app and extension share `group.com.example.tutormate`. Ensure that App Group is enabled for both signed targets in Xcode and registered for the Apple Developer team. Build and install the app, then add the TutorMate widget from the Home Screen widget gallery. iOS controls actual refresh timing.
+
+## Local notifications
+
+Class reminders are local notifications, not remote push. Enable Class Reminders in tutor settings and grant notification permission. Valid class times use a format such as `4:00 PM`. Updating or deleting a class reschedules or cancels its reminder. APNs/Firebase Cloud Messaging is not configured here.
+
+## Run and test
+
+Open `TutorMate.xcodeproj`, select the `TutorMate` scheme and a concrete iOS Simulator, then build/run. For command-line verification without signing:
+
+```sh
+xcodebuild -project TutorMate.xcodeproj -scheme TutorMate \
+  -destination 'platform=iOS Simulator,id=<SIMULATOR-UDID>' \
+  CODE_SIGNING_ALLOWED=NO build
+```
+
+Run tests by selecting the `TutorMateTests` scheme/target in Xcode or using the same concrete simulator destination with `test`. The suite uses XCTest because no coursework brief specifying another framework was present in the repository. Tests do not contact live Firebase.
+
+## Known limitations and physical testing
+
+- Current Firestore rules deny student reads of assigned classes, attendance and payments; they also deny payment deletion. Student assignment and student-ID payment linking need an approved secure rule/schema change and a trusted account-linking workflow.
+- The student dashboard still contains sample presentation values and must not be represented as live student data.
+- Verify Firebase account creation, tutor CRUD and data persistence with a test Firebase project and test accounts.
+- Verify NFC scanning with a physical iPhone and correctly encoded NDEF tags.
+- Verify biometric success/cancel/unavailable paths on a device or supported simulator configuration.
+- Verify notification permission, delivery while backgrounded, rescheduling and cancellation on a device.
+- Verify App Group entitlement and widget refresh on a signed installation.
+- Accessibility should be reviewed with VoiceOver and larger text sizes on an iPhone before submission.
+
+## Submission checklist
+
+- Provide the official coursework brief and map components/learning outcomes to evidence; it is not included in this repository.
+- Run the full test target on an installed concrete simulator and preserve the result.
+- Complete Firebase Emulator/Console rule tests and obtain approval before deploying proposed security changes.
+- Perform physical-device NFC, biometric, notification, widget and accessibility checks.
+- Add screenshots, report, narrated demonstration and viva notes required by the actual coursework brief.
+- Archive/zip only the project and required coursework materials; exclude DerivedData and private credentials.

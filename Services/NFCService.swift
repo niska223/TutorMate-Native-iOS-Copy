@@ -24,6 +24,25 @@ final class NFCService: NSObject, ObservableObject, @preconcurrency NFCNDEFReade
         reader.begin()
     }
 
+    func cancelScanning() {
+        session?.invalidate()
+        session = nil
+        isScanning = false
+        completion?(.failure(NFCServiceError.cancelled))
+        completion = nil
+    }
+
+    nonisolated static func decodeTextRecord(_ record: NFCNDEFPayload) -> String? {
+        guard record.typeNameFormat == .nfcWellKnown,
+              String(data: record.type, encoding: .utf8) == "T",
+              let status = record.payload.first else { return nil }
+        let languageLength = Int(status & 0x3F)
+        let isUTF16 = (status & 0x80) != 0
+        let start = 1 + languageLength
+        guard record.payload.count > start else { return nil }
+        return String(data: record.payload.dropFirst(start), encoding: isUTF16 ? .utf16 : .utf8)
+    }
+
     nonisolated func readerSession(_ session: NFCNDEFReaderSession, didInvalidateWithError error: Error) {
         Task { @MainActor in
             self.isScanning = false
@@ -38,10 +57,7 @@ final class NFCService: NSObject, ObservableObject, @preconcurrency NFCNDEFReade
     }
 
     nonisolated func readerSession(_ session: NFCNDEFReaderSession, didDetectNDEFs messages: [NFCNDEFMessage]) {
-        let payload = messages.flatMap(\.records).compactMap { record -> String? in
-            if let text = String(data: record.payload, encoding: .utf8) { return text }
-            return nil
-        }.first
+        let payload = messages.flatMap(\.records).compactMap(Self.decodeTextRecord).first
         Task { @MainActor in
             self.isScanning = false
             if let payload, !payload.isEmpty { self.completion?(.success(payload)) }

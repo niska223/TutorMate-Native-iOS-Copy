@@ -37,7 +37,7 @@ struct TMCard<Content: View>: View {
 struct Eyebrow: View {
     let text: String
     var body: some View {
-        Text(text.uppercased()).font(.system(size: 10, weight: .heavy)).tracking(1.2)
+        Text(text.uppercased()).font(.caption2.weight(.heavy)).tracking(1.2)
             .foregroundStyle(TMStyle.blue)
     }
 }
@@ -46,7 +46,7 @@ struct PageTitle: View {
     var subtitle: String? = nil
     var body: some View {
         VStack(alignment: .leading, spacing: 5) {
-            Text(title).font(.system(size: 26, weight: .bold, design: .rounded)).foregroundStyle(TMStyle.ink)
+            Text(title).font(.system(.title2, design: .rounded).weight(.bold)).foregroundStyle(TMStyle.ink)
             if let subtitle { Text(subtitle).font(.subheadline).foregroundStyle(TMStyle.muted) }
         }.frame(maxWidth: .infinity, alignment: .leading).padding(.bottom, 4)
     }
@@ -64,7 +64,7 @@ struct MetricTile: View {
                     .frame(width: 40, height: 40).background(tint.opacity(0.11), in: RoundedRectangle(cornerRadius: 12))
                 Spacer(minLength: 0)
             }
-            Text(value).font(.system(size: 25, weight: .bold, design: .rounded)).foregroundStyle(TMStyle.ink)
+            Text(value).font(.system(.title2, design: .rounded).weight(.bold)).foregroundStyle(TMStyle.ink)
             Text(title).font(.subheadline.weight(.semibold)).foregroundStyle(TMStyle.ink)
             Text(detail).font(.caption).foregroundStyle(TMStyle.muted)
         }
@@ -82,7 +82,7 @@ struct PrimaryButton: View {
             }
             .frame(maxWidth: .infinity).padding(.vertical, 14)
             .foregroundStyle(.white).background(TMStyle.blue, in: RoundedRectangle(cornerRadius: 14))
-        }.buttonStyle(.plain)
+        }.buttonStyle(.plain).accessibilityLabel(title).accessibilityHint("Activates this action")
     }
 }
 struct StatusPill: View {
@@ -92,5 +92,6 @@ struct StatusPill: View {
         Text(text).font(.caption.weight(.semibold)).foregroundStyle(color)
             .padding(.horizontal, 10).padding(.vertical, 5)
             .background(color.opacity(0.10), in: Capsule())
+            .accessibilityLabel(text)
     }
 }

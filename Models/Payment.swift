@@ -7,4 +7,11 @@ struct Payment: Identifiable, Codable {
     var amount: Double
     var date: Date
     var isPaid: Bool
+
+    var validationError: String? {
+        if studentName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return "Student is required." }
+        if description.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return "Description is required." }
+        if !amount.isFinite || amount <= 0 { return "Amount must be greater than zero." }
+        return nil
+    }
 }

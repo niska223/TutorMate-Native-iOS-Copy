@@ -6,6 +6,9 @@ struct TutorClassesView: View {
     @State private var showAdd = false
     @State private var search = ""
     @State private var listMode = false
+    @State private var editingClass: ClassSession?
+    @State private var deletingClass: ClassSession?
+    @State private var confirmDeleteClass = false
 
     private var filtered: [ClassSession] {
         app.sessions
@@ -132,6 +135,10 @@ struct TutorClassesView: View {
                                 Spacer(minLength: 0)
                             }
                         }
+                        .contextMenu {
+                            Button("Edit class", systemImage: "pencil") { editingClass = session }
+                            Button("Delete class", systemImage: "trash", role: .destructive) { deletingClass = session; confirmDeleteClass = true }
+                        }
                     }
                 }
             }
@@ -140,15 +147,23 @@ struct TutorClassesView: View {
             .frame(maxWidth: .infinity, alignment: .topLeading)
         }
         .background(TMStyle.canvas)
+        .refreshable {
+            await app.loadTutorClasses()
+        }
         .sheet(isPresented: $showAdd) {
             AddClassSheet()
         }
+        .sheet(item: $editingClass) { AddClassSheet(existing: $0) }
+        .confirmationDialog("Delete this class?", isPresented: $confirmDeleteClass) {
+            Button("Delete", role: .destructive) { if let session = deletingClass { Task { _ = await app.deleteClass(session) } } }
+        } message: { Text("This removes the class from your tutor schedule.") }
     }
 }
 
 private struct AddClassSheet: View {
     @EnvironmentObject private var app: AppController
     @Environment(\.dismiss) private var dismiss
+    var existing: ClassSession? = nil
 
     @State private var title = ""
     @State private var subject = "Mathematics"
@@ -157,6 +172,15 @@ private struct AddClassSheet: View {
     @State private var location = "Room 02"
     @State private var isSaving = false
     @State private var errorMessage = ""
+
+    init(existing: ClassSession? = nil) {
+        self.existing = existing
+        _title = State(initialValue: existing?.title ?? "")
+        _subject = State(initialValue: existing?.subject ?? "Mathematics")
+        _date = State(initialValue: existing?.date ?? .now)
+        _time = State(initialValue: existing?.time ?? "4:00 PM")
+        _location = State(initialValue: existing?.location ?? "Room 02")
+    }
 
     var body: some View {
         NavigationStack {
@@ -187,7 +211,7 @@ private struct AddClassSheet: View {
                         .foregroundStyle(.red)
                 }
             }
-            .navigationTitle("New class")
+            .navigationTitle(existing == nil ? "New class" : "Edit class")
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") {
@@ -197,7 +221,7 @@ private struct AddClassSheet: View {
                 }
 
                 ToolbarItem(placement: .confirmationAction) {
-                    Button(isSaving ? "Saving..." : "Save") {
+                Button(isSaving ? "Saving..." : "Save") {
                         saveClass()
                     }
                     .disabled(isSaving)
@@ -227,17 +251,28 @@ private struct AddClassSheet: View {
         isSaving = true
 
         Task { @MainActor in
-            let saved = await app.addClass(
+            let result: Bool
+            if let existing {
+                var updated = existing
+                updated.title = title.trimmingCharacters(in: .whitespacesAndNewlines)
+                updated.subject = subject
+                updated.date = date
+                updated.time = time.trimmingCharacters(in: .whitespacesAndNewlines)
+                updated.location = location.trimmingCharacters(in: .whitespacesAndNewlines)
+                result = await app.updateClass(updated)
+            } else {
+                result = await app.addClass(
                 title: title,
                 subject: subject,
                 date: date,
                 time: time,
                 location: location
-            )
+                )
+            }
 
             isSaving = false
 
-            if saved {
+            if result {
                 dismiss()
             } else {
                 errorMessage = app.toastMessage ?? "The class could not be saved. Please try again."
